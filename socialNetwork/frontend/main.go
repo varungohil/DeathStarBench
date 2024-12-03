@@ -4,10 +4,10 @@ import (
     "context"
     "encoding/json"
     "fmt"
-    "log"
+    // "log"
     "net/http"
     "strconv"
-    "sync"
+    // "sync"
     "time"
 	"io"
     // "strings"
@@ -16,7 +16,7 @@ import (
 	"net/http/httputil"
 	"net/url"
     "os"
-    "bytes"
+    // "bytes"
 
     "github.com/apache/thrift/lib/go/thrift"
     "github.com/opentracing/opentracing-go"
@@ -52,6 +52,7 @@ type Config struct {
 	ComposePostService  ServiceConfig `json:"compose-post-service"`
 	UserTimelineService ServiceConfig `json:"user-timeline-service"`
 	UserService          ServiceConfig `json:"user-service"`
+	SocialGraphService   ServiceConfig `json:"social-graph-service"`
 }
 
 var (
@@ -68,6 +69,7 @@ var (
 	composePostServiceConfig  ServiceConfig
 	userTimelineServiceConfig ServiceConfig
 	userServiceConfig         ServiceConfig
+	socialGraphServiceConfig ServiceConfig
 
 	log *logrus.Logger
 )
@@ -336,6 +338,7 @@ func (p *ComposePostClientPool) ComposePost(ctx context.Context, reqID int64, us
     span.SetTag("reqID", reqID)
     span.SetTag("userID", userID)
     span.SetTag("username", username)
+    postTypeEnum := social_network.PostType(postType)
     
     // Get client from pool
     clientWrapper, err := p.getClient(ctx)
@@ -354,7 +357,6 @@ func (p *ComposePostClientPool) ComposePost(ctx context.Context, reqID int64, us
         log.Printf("Failed to inject span context: %v", err)
     }
 
-    // Make the actual compose post call
     err = clientWrapper.client.ComposePost(
         ctx,
         reqID,
@@ -363,7 +365,7 @@ func (p *ComposePostClientPool) ComposePost(ctx context.Context, reqID int64, us
         text,
         mediaIDs,
         mediaTypes,
-        postType,
+        postTypeEnum, // Use the converted type
         carrier,
     )
 
@@ -576,7 +578,72 @@ func (p *UserServiceClientPool) RegisterUser(ctx context.Context, reqID int64, f
     return nil
 }
 
-func (p *UserServiceClientPool) Follow(ctx context.Context, reqID int64, userID int64, followeeID int64) error {
+type socialGraphClientWrapper struct {
+    client    *social_network.SocialGraphServiceClient
+    transport thrift.TTransport
+}
+
+type SocialGraphClientPool struct {
+    clients chan *socialGraphClientWrapper
+    addr    string
+}
+
+func NewSocialGraphClientPool(addr string, capacity int) *SocialGraphClientPool {
+    pool := &SocialGraphClientPool{
+        addr:    addr,
+        clients: make(chan *socialGraphClientWrapper, capacity),
+    }
+    // Pre-allocate clients
+    for i := 0; i < capacity; i++ {
+        clientWrapper, err := pool.newClient()
+        if err == nil {
+            pool.clients <- clientWrapper
+        }
+    }
+    return pool
+}
+
+func (p *SocialGraphClientPool) newClient() (*socialGraphClientWrapper, error) {
+    transport, err := thrift.NewTSocket(p.addr)
+    if err != nil {
+        return nil, fmt.Errorf("error opening socket: %v", err)
+    }
+    protocolFactory := thrift.NewTBinaryProtocolFactoryDefault()
+    transportFactory := thrift.NewTFramedTransportFactory(thrift.NewTTransportFactory())
+
+    useTransport, err := transportFactory.GetTransport(transport)
+    if err != nil {
+        return nil, fmt.Errorf("error creating transport: %v", err)
+    }
+
+    if err := useTransport.Open(); err != nil {
+        return nil, fmt.Errorf("error opening transport: %v", err)
+    }
+
+    client := social_network.NewSocialGraphServiceClientFactory(useTransport, protocolFactory)
+    return &socialGraphClientWrapper{client: client, transport: useTransport}, nil
+}
+
+func (p *SocialGraphClientPool) getClient(ctx context.Context) (*socialGraphClientWrapper, error) {
+    select {
+    case client := <-p.clients:
+        return client, nil
+    default:
+        return p.newClient()
+    }
+}
+
+func (p *SocialGraphClientPool) returnClient(clientWrapper *socialGraphClientWrapper) {
+    select {
+    case p.clients <- clientWrapper:
+        // Client returned to pool
+    default:
+        // Pool is full, close the client
+        clientWrapper.transport.Close()
+    }
+}
+
+func (p *SocialGraphClientPool) Follow(ctx context.Context, reqID int64, userID int64, followeeID int64) error {
     span, ctx := opentracing.StartSpanFromContext(ctx, "Follow")
     defer span.Finish()
 
@@ -607,7 +674,7 @@ func (p *UserServiceClientPool) Follow(ctx context.Context, reqID int64, userID 
     return nil
 }
 
-func (p *UserServiceClientPool) FollowWithUsername(ctx context.Context, reqID int64, username string, followeeName string) error {
+func (p *SocialGraphClientPool) FollowWithUsername(ctx context.Context, reqID int64, username string, followeeName string) error {
     span, ctx := opentracing.StartSpanFromContext(ctx, "FollowWithUsername")
     defer span.Finish()
 
@@ -638,7 +705,7 @@ func (p *UserServiceClientPool) FollowWithUsername(ctx context.Context, reqID in
     return nil
 }
 
-func (p *UserServiceClientPool) Unfollow(ctx context.Context, reqID int64, userID int64, followeeID int64) error {
+func (p *SocialGraphClientPool) Unfollow(ctx context.Context, reqID int64, userID int64, followeeID int64) error {
     span, ctx := opentracing.StartSpanFromContext(ctx, "Unfollow")
     defer span.Finish()
 
@@ -669,7 +736,7 @@ func (p *UserServiceClientPool) Unfollow(ctx context.Context, reqID int64, userI
     return nil
 }
 
-func (p *UserServiceClientPool) UnfollowWithUsername(ctx context.Context, reqID int64, username string, followeeName string) error {
+func (p *SocialGraphClientPool) UnfollowWithUsername(ctx context.Context, reqID int64, username string, followeeName string) error {
     span, ctx := opentracing.StartSpanFromContext(ctx, "UnfollowWithUsername")
     defer span.Finish()
 
@@ -758,6 +825,12 @@ func main() {
         return
     }
 
+    err = json.Unmarshal(configMap["social-graph-service"], &socialGraphServiceConfig)
+    if err != nil {
+        log.WithError(err).Fatal("Error unmarshaling social-graph-service config")
+        return
+    }
+
     log.WithFields(logrus.Fields{
         "config": homeTimelineServiceConfig,
     }).Info("Home Timeline Service Configuration")
@@ -773,6 +846,9 @@ func main() {
     log.WithFields(logrus.Fields{
         "config": userServiceConfig,
     }).Info("User Service Configuration")
+    log.WithFields(logrus.Fields{
+        "config": socialGraphServiceConfig,
+    }).Info("Social Graph Service Configuration")
 
     // Initialize Thrift client pools
     poolSize := 1024
@@ -797,6 +873,10 @@ func main() {
     )
     userPool := NewUserServiceClientPool(
         userServiceConfig.Addr+":"+strconv.Itoa(userServiceConfig.Port),
+        poolSize,
+    )
+    socialGraphPool := NewSocialGraphClientPool(
+        socialGraphServiceConfig.Addr+":"+strconv.Itoa(socialGraphServiceConfig.Port),
         poolSize,
     )
 
@@ -1143,7 +1223,7 @@ func main() {
                 return
             }
 
-            err = userPool.Follow(ctx, reqID, userID, followeeID)
+            err = socialGraphPool.Follow(ctx, reqID, userID, followeeID)
         } else if userName := r.FormValue("user_name"); userName != "" {
             followeeName := r.FormValue("followee_name")
             if followeeName == "" {
@@ -1151,7 +1231,7 @@ func main() {
                 return
             }
 
-            err = userPool.FollowWithUsername(ctx, reqID, userName, followeeName)
+            err = socialGraphPool.FollowWithUsername(ctx, reqID, userName, followeeName)
         } else {
             http.Error(w, "Incomplete arguments", http.StatusBadRequest)
             return
@@ -1218,7 +1298,7 @@ func main() {
                 return
             }
 
-            err = userPool.Unfollow(ctx, reqID, userID, followeeID)
+            err = socialGraphPool.Unfollow(ctx, reqID, userID, followeeID)
         } else if userName := r.FormValue("user_name"); userName != "" {
             followeeName := r.FormValue("followee_name")
             if followeeName == "" {
@@ -1226,7 +1306,7 @@ func main() {
                 return
             }
 
-            err = userPool.UnfollowWithUsername(ctx, reqID, userName, followeeName)
+            err = socialGraphPool.UnfollowWithUsername(ctx, reqID, userName, followeeName)
         } else {
             http.Error(w, "Incomplete arguments", http.StatusBadRequest)
             return
@@ -1252,8 +1332,12 @@ func main() {
     })
 
     // Start HTTP server
-    log.Info("Starting server on :8081")
-    if err := http.ListenAndServe(":8081", nil); err != nil {
+    port := os.Getenv("FRONTEND_PORT")
+    if port == "" {
+        port = "8081" // Default port if not set
+    }
+    log.Info("Starting server on :" + port)
+    if err := http.ListenAndServe(":"+port, nil); err != nil {
         log.WithError(err).Fatal("Failed to start server")
     }
 }
