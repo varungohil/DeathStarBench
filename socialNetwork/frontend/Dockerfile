@@ -1,5 +1,5 @@
 # Start from the official Go image
-FROM golang:1.17-alpine as builder
+FROM golang:1.17-alpine AS builder
 
 # Set necessary environment variables
 ENV GO111MODULE=on \
