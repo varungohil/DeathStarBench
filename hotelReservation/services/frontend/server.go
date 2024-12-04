@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/delimitrou/DeathStarBench/tree/master/hotelReservation/dialer"
 	"github.com/delimitrou/DeathStarBench/tree/master/hotelReservation/registry"
@@ -210,6 +211,12 @@ func (s *Server) getGprcConn(name string) (*grpc.ClientConn, error) {
 }
 
 func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		log.Trace().Msgf("searchHandler duration: %v", duration)
+	}()
+
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	ctx := r.Context()
 
@@ -293,6 +300,12 @@ func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) recommendHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		log.Trace().Msgf("recommendHandler duration: %v", duration)
+	}()
+
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	ctx := r.Context()
 
@@ -343,6 +356,12 @@ func (s *Server) recommendHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) reviewHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		log.Trace().Msgf("reviewHandler duration: %v", duration)
+	}()
+
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	ctx := r.Context()
 
@@ -395,6 +414,12 @@ func (s *Server) reviewHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) restaurantHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		log.Trace().Msgf("restaurantHandler duration: %v", duration)
+	}()
+
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	ctx := r.Context()
 
@@ -447,6 +472,12 @@ func (s *Server) restaurantHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) museumHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		log.Trace().Msgf("museumHandler duration: %v", duration)
+	}()
+
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	ctx := r.Context()
 
@@ -499,6 +530,12 @@ func (s *Server) museumHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cinemaHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		log.Trace().Msgf("cinemaHandler duration: %v", duration)
+	}()
+
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	ctx := r.Context()
 
@@ -551,6 +588,12 @@ func (s *Server) cinemaHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) userHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		log.Trace().Msgf("userHandler duration: %v", duration)
+	}()
+
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	ctx := r.Context()
 
@@ -583,6 +626,12 @@ func (s *Server) userHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) reservationHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		log.Trace().Msgf("reservationHandler duration: %v", duration)
+	}()
+
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	ctx := r.Context()
 
