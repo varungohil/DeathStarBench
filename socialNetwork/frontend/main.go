@@ -920,8 +920,9 @@ func main() {
 
         reqID, err := strconv.ParseInt(reqIDStr, 10, 64)
         if err != nil {
-            http.Error(w, "Invalid req_id", http.StatusBadRequest)
-            return
+            reqID := time.Now().UnixNano()
+            // http.Error(w, "Invalid req_id", http.StatusBadRequest)
+            // return
         }
 
         posts, err := timelinePool.ReadHomeTimeline(ctx, reqID, userID, int32(start), int32(stop))
@@ -987,14 +988,26 @@ func main() {
 
         var mediaIDs []int64
         var mediaTypes []string
+        var mediaIDStrings []string
 
         if mediaIDsStr := r.FormValue("media_ids"); mediaIDsStr != "" {
-            if err := json.Unmarshal([]byte(mediaIDsStr), &mediaIDs); err != nil {
-                http.Error(w, "Invalid media_ids format", http.StatusBadRequest)
+            if err := json.Unmarshal([]byte(mediaIDsStr), &mediaIDStrings); err != nil {
+                http.Error(w, fmt.Sprintf("Invalid media_ids format: %v", err), http.StatusBadRequest)
                 return
             }
         }
 
+        // Convert each string to int64
+        mediaIDs = make([]int64, len(mediaIDStrings))
+        for i, idStr := range mediaIDStrings {
+            id, err := strconv.ParseInt(idStr, 10, 64)
+            if err != nil {
+                http.Error(w, fmt.Sprintf("Invalid media_id value: %v", err), http.StatusBadRequest)
+                return
+            }
+            mediaIDs[i] = id
+        }
+        
         if mediaTypesStr := r.FormValue("media_types"); mediaTypesStr != "" {
             if err := json.Unmarshal([]byte(mediaTypesStr), &mediaTypes); err != nil {
                 http.Error(w, "Invalid media_types format", http.StatusBadRequest)
@@ -1073,7 +1086,13 @@ func main() {
             return
         }
 
-        reqID := time.Now().UnixNano()
+        reqID, err := strconv.ParseInt(reqIDStr, 10, 64)
+        if err != nil {
+            reqID := time.Now().UnixNano()
+            // http.Error(w, "Invalid req_id", http.StatusBadRequest)
+            // return
+        }
+        
 
         posts, err := userTimelinePool.ReadUserTimeline(ctx, reqID, userID, int32(start), int32(stop))
         if err != nil {
