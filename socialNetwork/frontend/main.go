@@ -984,7 +984,17 @@ func main() {
         }
 
         text := r.FormValue("text")
-        reqID := time.Now().UnixNano()
+        var reqID int64
+        if reqIDStr := r.FormValue("req_id"); reqIDStr == "" {
+            reqID = time.Now().UnixNano()
+        } else {
+            parsedReqID, err := strconv.ParseInt(reqIDStr, 10, 64)
+            if err != nil {
+                reqID = time.Now().UnixNano()
+            } else {
+                reqID = parsedReqID
+            }
+        }
 
         var mediaIDs []int64
         var mediaTypes []string
