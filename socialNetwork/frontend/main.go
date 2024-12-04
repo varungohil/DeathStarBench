@@ -920,7 +920,7 @@ func main() {
 
         reqID, err := strconv.ParseInt(reqIDStr, 10, 64)
         if err != nil {
-            reqID := time.Now().UnixNano()
+            reqID = time.Now().UnixNano()
             // http.Error(w, "Invalid req_id", http.StatusBadRequest)
             // return
         }
@@ -1007,7 +1007,7 @@ func main() {
             }
             mediaIDs[i] = id
         }
-        
+
         if mediaTypesStr := r.FormValue("media_types"); mediaTypesStr != "" {
             if err := json.Unmarshal([]byte(mediaTypesStr), &mediaTypes); err != nil {
                 http.Error(w, "Invalid media_types format", http.StatusBadRequest)
@@ -1062,6 +1062,7 @@ func main() {
         userIDStr := r.URL.Query().Get("user_id")
         startStr := r.URL.Query().Get("start")
         stopStr := r.URL.Query().Get("stop")
+        reqIDStr := r.URL.Query().Get("req_id")
 
         if userIDStr == "" || startStr == "" || stopStr == "" {
             http.Error(w, "Incomplete arguments", http.StatusBadRequest)
@@ -1088,7 +1089,7 @@ func main() {
 
         reqID, err := strconv.ParseInt(reqIDStr, 10, 64)
         if err != nil {
-            reqID := time.Now().UnixNano()
+            reqID = time.Now().UnixNano()
             // http.Error(w, "Invalid req_id", http.StatusBadRequest)
             // return
         }
