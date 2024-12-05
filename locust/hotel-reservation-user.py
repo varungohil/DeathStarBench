@@ -40,7 +40,6 @@ class HotelReservationUser(FastHttpUser):
         self.wait_distribution = self.environment.parsed_options.wait_distribution
         self.throughput_per_user = self.environment.parsed_options.throughput_per_user
         self.zipf_alpha = self.environment.parsed_options.zipf_alpha
-        self.mean_exp_time = self.environment.parsed_options.mean_exp_time
         self._setup_wait_time()
 
     def _setup_wait_time(self):
