@@ -56,14 +56,14 @@ class SocialNetworkUser(FastHttpUser):
     def _setup_wait_time(self):
         """Configure the wait time function based on distribution type"""
         if self.wait_distribution == "constput":
-            self.wait_time = constant_throughput(self.throughput_per_user)
+            wait_time = constant_throughput(self.throughput_per_user)
         elif self.wait_distribution == "fixed":
-            self.wait_time = constant(1.0/self.throughput_per_user)
+            wait_time = constant(1.0/self.throughput_per_user)
         elif self.wait_distribution == "exp":
             mean_time = self.mean_exp_time if self.mean_exp_time is not None else 1.0 
-            self.wait_time = lambda self: random.expovariate(mean_time)/self.throughput_per_user
+            wait_time = lambda self: random.expovariate(mean_time)/self.throughput_per_user
         elif self.wait_distribution == "zipf":
-            self.wait_time = lambda self: np.random.zipf(self.zipf_alpha)/self.throughput_per_user
+            wait_time = lambda self: np.random.zipf(self.zipf_alpha)/self.throughput_per_user
         else:
             raise ValueError(f"Unknown distribution type: {self.wait_distribution}")
 
