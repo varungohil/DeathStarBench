@@ -1,7 +1,7 @@
 import time
 import random
 import math
-from locust import FastHttpUser, task, constant_throughput, tag, events
+from locust import FastHttpUser, task, constant_throughput, constant, tag, events
 import numpy as np
 
 @events.init_command_line_parser.add_listener
@@ -10,9 +10,9 @@ def _(parser):
         "--wait-distribution", "-w",
         type=str,
         env_var="LOCUST_WAIT_DISTRIBUTION",
-        choices=["fixed", "exp", "zipf"],
+        choices=["fixed", "constput", "exp", "zipf"],
         default="fixed",
-        help="Wait time distribution (fixed, exp, or zipf)"
+        help="Wait time distribution (fixed, constant throughput (constput) , exp, or zipf)"
     )
     parser.add_argument(
         "--throughput-per-user", "-tu",
@@ -55,9 +55,10 @@ class SocialNetworkUser(FastHttpUser):
         
     def _setup_wait_time(self):
         """Configure the wait time function based on distribution type"""
-        if self.wait_distribution == "fixed":
-            # Use throughput_per_user directly for fixed wait time
+        if self.wait_distribution == "constput":
             self.wait_time = constant_throughput(self.throughput_per_user)
+        elif self.wait_distribution == "fixed":
+            self.wait_time = constant(1.0/self.throughput_per_user)
         elif self.wait_distribution == "exp":
             mean_time = self.mean_exp_time if self.mean_exp_time is not None else 1.0 
             self.wait_time = lambda self: random.expovariate(mean_time)/self.throughput_per_user
@@ -78,7 +79,7 @@ class SocialNetworkUser(FastHttpUser):
     def dec_random(self, length):
         return ''.join(random.choice(self.decset) for _ in range(length))
     
-    @tag('rht', 'mixed')
+    @tag('read_home_timeline', 'mixed')
     @task(60)
     def read_home_timeline(self):
         # Generate random user_id, start, stop, and milliseconds_int
@@ -100,7 +101,7 @@ class SocialNetworkUser(FastHttpUser):
                         headers={"Content-Type": "application/x-www-form-urlencoded"}, 
                         name="read-home-timeline")
 
-    @tag('rut', 'mixed')
+    @tag('read_user_timeline', 'mixed')
     @task(30)
     def read_user_timeline(self):
         user_id = str(random.randint(0, self.max_user_index - 1))
@@ -118,7 +119,7 @@ class SocialNetworkUser(FastHttpUser):
                        name="read-user-timeline")
 
     
-    @tag('cp', 'mixed')
+    @tag('compose_post', 'mixed')
     @task(10)
     def compose_post(self):
         user_index = random.randint(0, self.max_user_index - 1)
