@@ -1,17 +1,70 @@
 import time
 import random
-from locust import FastHttpUser, task, constant_throughput, tag
+import math
+from locust import FastHttpUser, task, constant_throughput, tag, events
+import numpy as np
+
+@events.init_command_line_parser.add_listener
+def _(parser):
+    parser.add_argument(
+        "--wait-distribution", "-w",
+        type=str,
+        env_var="LOCUST_WAIT_DISTRIBUTION",
+        choices=["fixed", "exp", "zipf"],
+        default="fixed",
+        help="Wait time distribution (fixed, exp, or zipf)"
+    )
+    parser.add_argument(
+        "--throughput-per-user", "-tu",
+        type=float,
+        env_var="LOCUST_THROUGHPUT_PER_USER",
+        default=1.0,  # 1 request per second
+        help="Throughput per user in requests per second (only for fixed distribution)"
+    )
+    parser.add_argument(
+        "--zipf-alpha", "-za",
+        type=float,
+        env_var="LOCUST_ZIPF_ALPHA",
+        default=3.0,
+        help="Zipf distribution shape parameter"
+    )
+    parser.add_argument(
+        "--mean-exp-time", "-me",
+        type=float,
+        env_var="LOCUST_EMAN_EXP_TIME",
+        default=None,
+        help="Exponential distribution mean time in seconds"
+    )
 
 class SocialNetworkUser(FastHttpUser):
-    # wait_time = between(1, 2)  # Define wait time between requests
-    wait_time = constant_throughput(1)
-
     # Load environment variables or set default
     max_user_index = 961
 
     # Add class variables for character sets
     charset = list('qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890')
     decset = list('1234567890')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Get configuration from command line args
+        self.wait_distribution = self.environment.parsed_options.wait_distribution
+        self.throughput_per_user = self.environment.parsed_options.throughput_per_user
+        self.zipf_alpha = self.environment.parsed_options.zipf_alpha
+        self.mean_exp_time = self.environment.parsed_options.mean_exp_time
+        self._setup_wait_time()
+        
+    def _setup_wait_time(self):
+        """Configure the wait time function based on distribution type"""
+        if self.wait_distribution == "fixed":
+            # Use throughput_per_user directly for fixed wait time
+            self.wait_time = constant_throughput(self.throughput_per_user)
+        elif self.wait_distribution == "exp":
+            mean_time = self.mean_exp_time if self.mean_exp_time is not None else 1.0 
+            self.wait_time = lambda self: random.expovariate(mean_time)/self.throughput_per_user
+        elif self.wait_distribution == "zipf":
+            self.wait_time = lambda self: np.random.zipf(self.zipf_alpha)/self.throughput_per_user
+        else:
+            raise ValueError(f"Unknown distribution type: {self.wait_distribution}")
 
     def on_start(self):
         # Seed random with the current time (milliseconds)
