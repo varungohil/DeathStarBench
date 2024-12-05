@@ -289,3 +289,30 @@ services:
     restart: always
     environment:
       - COLLECTOR_ZIPKIN_HTTP_PORT=9411
+
+  frontend:
+    image: varungohil/social-network-frontend-go:latest
+    hostname: frontend
+    ports:
+      - 8081:8081
+    depends_on:
+      jaeger-agent:
+        condition: service_started
+      home-timeline-service:
+        condition: service_started
+      post-storage-service:
+        condition: service_started
+      user-timeline-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      compose-post-service:
+        condition: service_started
+    restart: always
+    environment:
+      - FRONTEND_PORT=8081
+      - FRONTEND_ADDR=localhost
+      - LOG_LEVEL=info
+    volumes:
+      - ./config/service-config.json:/service-config.json
+      - ./config/jaeger-config.yml:/jaeger-config.yml
