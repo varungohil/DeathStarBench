@@ -55,13 +55,13 @@ func (s *Server) Run() error {
 		return fmt.Errorf("Server port must be set")
 	}
 
-	log.Info().Msg("Loading static content...")
+	// log.Info().Msg("Loading static content...")
 	staticContent, err := fs.Sub(content, "static")
 	if err != nil {
 		return err
 	}
 
-	log.Info().Msg("Initializing gRPC clients...")
+	// log.Info().Msg("Initializing gRPC clients...")
 	if err := s.initSearchClient("srv-search"); err != nil {
 		return err
 	}
@@ -90,9 +90,8 @@ func (s *Server) Run() error {
 		return err
 	}
 
-	log.Info().Msg("Successful")
+	// log.Info().Msg("Successful")
 
-	log.Trace().Msg("frontend before mux")
 	mux := tracing.NewServeMux(s.Tracer)
 	mux.Handle("/", http.FileServer(http.FS(staticContent)))
 	mux.Handle("/hotels", http.HandlerFunc(s.searchHandler))
@@ -104,7 +103,7 @@ func (s *Server) Run() error {
 	mux.Handle("/cinema", http.HandlerFunc(s.cinemaHandler))
 	mux.Handle("/reservation", http.HandlerFunc(s.reservationHandler))
 
-	log.Trace().Msg("frontend starts serving")
+	// log.Trace().Msg("frontend starts serving")
 
 	tlsconfig := tls.GetHttpsOpt()
 	srv := &http.Server{
@@ -220,7 +219,7 @@ func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	ctx := r.Context()
 
-	log.Trace().Msg("starts searchHandler")
+	// log.Trace().Msg("starts searchHandler")
 
 	// in/out dates from query params
 	inDate, outDate := r.URL.Query().Get("inDate"), r.URL.Query().Get("outDate")
@@ -241,9 +240,9 @@ func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
 	Lon, _ := strconv.ParseFloat(sLon, 32)
 	lon := float32(Lon)
 
-	log.Trace().Msg("starts searchHandler querying downstream")
+	// log.Trace().Msg("starts searchHandler querying downstream")
 
-	log.Trace().Msgf("SEARCH [lat: %v, lon: %v, inDate: %v, outDate: %v", lat, lon, inDate, outDate)
+	// log.Trace().Msgf("SEARCH [lat: %v, lon: %v, inDate: %v, outDate: %v", lat, lon, inDate, outDate)
 	// search for best hotels
 	searchResp, err := s.searchClient.Nearby(ctx, &search.NearbyRequest{
 		Lat:     lat,
@@ -256,7 +255,7 @@ func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Trace().Msg("SearchHandler gets searchResp")
+	// log.Trace().Msg("SearchHandler gets searchResp")
 	//for _, hid := range searchResp.HotelIds {
 	//	log.Trace().Msgf("Search Handler hotelId = %s", hid)
 	//}
@@ -280,8 +279,8 @@ func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Trace().Msgf("searchHandler gets reserveResp")
-	log.Trace().Msgf("searchHandler gets reserveResp.HotelId = %s", reservationResp.HotelId)
+	// log.Trace().Msgf("searchHandler gets reserveResp")
+	// log.Trace().Msgf("searchHandler gets reserveResp.HotelId = %s", reservationResp.HotelId)
 
 	// hotel profiles
 	profileResp, err := s.profileClient.GetProfiles(ctx, &profile.Request{
@@ -294,7 +293,7 @@ func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Trace().Msg("searchHandler gets profileResp")
+	// log.Trace().Msg("searchHandler gets profileResp")
 
 	json.NewEncoder(w).Encode(geoJSONResponse(profileResp.Hotels))
 }
