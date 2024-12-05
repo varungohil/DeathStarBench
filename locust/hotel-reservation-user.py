@@ -52,7 +52,7 @@ class HotelReservationUser(FastHttpUser):
         self.client.get("/hotels", params=params, name="search-hotels")
 
     @tag('recommend', 'mixed')
-    @task(39)
+    @task(38)
     def recommend(self):
         lat, lon = self.get_location()
         req_param = random.choice(["dis", "rate", "price"])
@@ -66,7 +66,7 @@ class HotelReservationUser(FastHttpUser):
         self.client.get("/recommendations", params=params, name="get-recommendations")
 
     @tag('login', 'mixed')
-    @task(0.5)
+    @task(1)
     def user_login(self):
         username, password = self.get_user()
 
@@ -78,7 +78,7 @@ class HotelReservationUser(FastHttpUser):
         self.client.post("/user", params=params, name="user-login")
 
     @tag('reserve', 'mixed')
-    @task(0.5)
+    @task(1)
     def reserve(self):
         in_date, out_date = self.get_dates()
         lat, lon = self.get_location()
