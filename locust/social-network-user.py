@@ -28,13 +28,6 @@ def _(parser):
         default=3.0,
         help="Zipf distribution shape parameter"
     )
-    parser.add_argument(
-        "--mean-exp-time", "-me",
-        type=float,
-        env_var="LOCUST_EMAN_EXP_TIME",
-        default=None,
-        help="Exponential distribution mean time in seconds"
-    )
 
 class SocialNetworkUser(FastHttpUser):
     # Load environment variables or set default
@@ -56,14 +49,13 @@ class SocialNetworkUser(FastHttpUser):
     def _setup_wait_time(self):
         """Configure the wait time function based on distribution type"""
         if self.wait_distribution == "constput":
-            wait_time = constant_throughput(self.throughput_per_user)
+            self.wait_time = constant_throughput(self.throughput_per_user)
         elif self.wait_distribution == "fixed":
-            wait_time = constant(1.0/self.throughput_per_user)
+            self.wait_time = lambda : 1.0/self.throughput_per_user
         elif self.wait_distribution == "exp":
-            mean_time = self.mean_exp_time if self.mean_exp_time is not None else 1.0 
-            wait_time = lambda self: random.expovariate(mean_time)/self.throughput_per_user
+            self.wait_time = lambda : random.expovariate(self.throughput_per_user)
         elif self.wait_distribution == "zipf":
-            wait_time = lambda self: np.random.zipf(self.zipf_alpha)/self.throughput_per_user
+            self.wait_time = lambda : np.random.zipf(self.zipf_alpha)/self.throughput_per_user
         else:
             raise ValueError(f"Unknown distribution type: {self.wait_distribution}")
 
