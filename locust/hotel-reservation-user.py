@@ -1,15 +1,68 @@
 import time
 import random
-from locust import FastHttpUser, task, constant_throughput, tag
+from locust import FastHttpUser, task, constant_throughput, constant, tag, events
 from datetime import datetime, timedelta
+import numpy as np
+
+@events.init_command_line_parser.add_listener
+def _(parser):
+    parser.add_argument(
+        "--wait-distribution", "-w",
+        type=str,
+        env_var="LOCUST_WAIT_DISTRIBUTION",
+        choices=["fixed", "constput", "exp", "zipf"],
+        default="fixed",
+        help="Wait time distribution (fixed, constant throughput (constput), exp, or zipf)"
+    )
+    parser.add_argument(
+        "--throughput-per-user", "-tu",
+        type=float,
+        env_var="LOCUST_THROUGHPUT_PER_USER",
+        default=1.0,
+        help="Throughput per user in requests per second (only for fixed distribution)"
+    )
+    parser.add_argument(
+        "--zipf-alpha", "-za",
+        type=float,
+        env_var="LOCUST_ZIPF_ALPHA",
+        default=3.0,
+        help="Zipf distribution shape parameter"
+    )
+    parser.add_argument(
+        "--mean-exp-time", "-me",
+        type=float,
+        env_var="LOCUST_MEAN_EXP_TIME",
+        default=None,
+        help="Exponential distribution mean time in seconds"
+    )
 
 class HotelReservationUser(FastHttpUser):
-    wait_time = constant_throughput(1)
-    
-    # Constants from Lua script
+
     max_user_index = 500
     base_lat = 38.0235
     base_lon = -122.095
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.wait_distribution = self.environment.parsed_options.wait_distribution
+        self.throughput_per_user = self.environment.parsed_options.throughput_per_user
+        self.zipf_alpha = self.environment.parsed_options.zipf_alpha
+        self.mean_exp_time = self.environment.parsed_options.mean_exp_time
+        self._setup_wait_time()
+
+    def _setup_wait_time(self):
+        """Configure the wait time function based on distribution type"""
+        if self.wait_distribution == "constput":
+            self.wait_time = constant_throughput(self.throughput_per_user)
+        elif self.wait_distribution == "fixed":
+            self.wait_time = constant(1.0 / self.throughput_per_user)
+        elif self.wait_distribution == "exp":
+            mean_time = self.mean_exp_time if self.mean_exp_time is not None else 1.0
+            self.wait_time = lambda: random.expovariate(1.0 / mean_time)
+        elif self.wait_distribution == "zipf":
+            self.wait_time = lambda: np.random.zipf(self.zipf_alpha) / self.throughput_per_user
+        else:
+            raise ValueError(f"Unknown distribution type: {self.wait_distribution}")
 
     def on_start(self):
         current_time_millis = int(time.time() * 1000)
