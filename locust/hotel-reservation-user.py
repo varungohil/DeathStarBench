@@ -1,7 +1,6 @@
 import time
 import random
-from locust import FastHttpUser, task, constant_throughput, constant, tag, events
-from datetime import datetime, timedelta
+from locust import FastHttpUser, task, tag, events
 import numpy as np
 
 @events.init_command_line_parser.add_listener
@@ -10,9 +9,9 @@ def _(parser):
         "--wait-distribution", "-w",
         type=str,
         env_var="LOCUST_WAIT_DISTRIBUTION",
-        choices=["fixed", "constput", "exp", "zipf"],
+        choices=["fixed", "exp", "zipf"],
         default="fixed",
-        help="Wait time distribution (fixed, constant throughput (constput), exp, or zipf)"
+        help="Wait time distribution (fixed, exp, or zipf)"
     )
     parser.add_argument(
         "--throughput-per-user", "-tu",
@@ -44,9 +43,7 @@ class HotelReservationUser(FastHttpUser):
 
     def _setup_wait_time(self):
         """Configure the wait time function based on distribution type"""
-        if self.wait_distribution == "constput":
-            self.wait_time = constant_throughput(self.throughput_per_user)
-        elif self.wait_distribution == "fixed":
+        if self.wait_distribution == "fixed":
             self.wait_time = lambda: 1.0 / self.throughput_per_user
         elif self.wait_distribution == "exp":
             self.wait_time = lambda: random.expovariate(self.throughput_per_user)
