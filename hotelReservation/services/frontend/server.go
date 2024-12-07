@@ -212,7 +212,7 @@ func (s *Server) getGprcConn(name string) (*grpc.ClientConn, error) {
 func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
-		duration := time.Since(start)
+		duration := time.Since(start).Microseconds() 
 		log.Trace().Msgf("searchHandler duration: %v", duration)
 	}()
 
@@ -301,7 +301,7 @@ func (s *Server) searchHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) recommendHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
-		duration := time.Since(start)
+		duration := time.Since(start).Microseconds()
 		log.Trace().Msgf("recommendHandler duration: %v", duration)
 	}()
 
@@ -357,7 +357,7 @@ func (s *Server) recommendHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) reviewHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
-		duration := time.Since(start)
+		duration := time.Since(start).Microseconds()
 		log.Trace().Msgf("reviewHandler duration: %v", duration)
 	}()
 
@@ -415,7 +415,7 @@ func (s *Server) reviewHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) restaurantHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
-		duration := time.Since(start)
+		duration := time.Since(start).Microseconds()
 		log.Trace().Msgf("restaurantHandler duration: %v", duration)
 	}()
 
@@ -473,7 +473,7 @@ func (s *Server) restaurantHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) museumHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
-		duration := time.Since(start)
+		duration := time.Since(start).Microseconds()
 		log.Trace().Msgf("museumHandler duration: %v", duration)
 	}()
 
@@ -531,7 +531,7 @@ func (s *Server) museumHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) cinemaHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
-		duration := time.Since(start)
+		duration := time.Since(start).Microseconds()
 		log.Trace().Msgf("cinemaHandler duration: %v", duration)
 	}()
 
@@ -589,7 +589,7 @@ func (s *Server) cinemaHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) userHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
-		duration := time.Since(start)
+		duration := time.Since(start).Microseconds()
 		log.Trace().Msgf("userHandler duration: %v", duration)
 	}()
 
@@ -627,7 +627,7 @@ func (s *Server) userHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) reservationHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
-		duration := time.Since(start)
+		duration := time.Since(start).Microseconds()
 		log.Trace().Msgf("reservationHandler duration: %v", duration)
 	}()
 
