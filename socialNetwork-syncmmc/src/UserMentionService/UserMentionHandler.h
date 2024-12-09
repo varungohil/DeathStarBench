@@ -83,7 +83,6 @@ void UserMentionHandler::ComposeUserMentions(
 
     size_t value_length;
     uint32_t flags;
-    memcached_return rc;
     for (int i = 0; i < usernames.size(); i++){
       auto span_name = "user_mentions_compose_mmc_get_call_" +  std::to_string(i);
       auto get_span = opentracing::Tracer::Global()->StartSpan(
@@ -92,11 +91,11 @@ void UserMentionHandler::ComposeUserMentions(
       get_span->Finish();
       if (rc == MEMCACHED_SUCCESS) {    
         UserMention new_user_mention;
-        std::string username(return_key, return_key + return_key_length);
+        std::string username(keys[i], keys[i] + key_sizes[i]);
         username = username.substr(0, username.length() - std::strlen(":user_id"));
         new_user_mention.username = username;
         new_user_mention.user_id = std::stoul(
-            std::string(return_value, return_value + return_value_length));
+            std::string(result, result + value_length));
         user_mentions.emplace_back(new_user_mention);
         usernames_not_cached.erase(username);
       } else {
