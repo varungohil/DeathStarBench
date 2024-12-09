@@ -621,7 +621,7 @@ void PostStorageHandler::ReadPosts(
       mongoc_collection_destroy(collection);
       mongoc_client_pool_push(_mongodb_client_pool, mongodb_client);
       ServiceException se;
-      se.errorCode = ErrorCode::SE_MONGODB_ERROR;¬
+      se.errorCode = ErrorCode::SE_MONGODB_ERROR;
       se.message = error.message;
       throw se;
     }
