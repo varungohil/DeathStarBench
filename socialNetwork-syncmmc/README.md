@@ -1,4 +1,5 @@
-#What does syncmmc mean?
+# What does syncmmc mean?
+
 The suffix means that in this social network implementation, all get/set calls to Memcached are synchronous calls. The default social network implementation performs async calls to memcached in Post-Storage and User-Mention services.
 Note that only the Memcached calls are synchronous. Calls to MongoDB or calls from one service to another can be asynchronous.
 
