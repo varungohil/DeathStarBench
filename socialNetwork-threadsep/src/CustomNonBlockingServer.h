@@ -749,7 +749,7 @@ public:
     }
     
     // Update thread manager's CPU affinity
-    threadManager_->changeCpuset(cpuset);
+    threadManager_->changeCpuset(&cpuset);
     return true;
   }
 
