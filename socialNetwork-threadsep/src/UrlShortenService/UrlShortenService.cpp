@@ -104,7 +104,7 @@ int main(int argc, char* argv[]) {
   server.setNumIOThreads(config_json["url-shorten-service"]["num_io_threads"]);
 
   LOG(info) << "Starting the url-shorten-service server...";
-  serverThread = std::thread([&]() {
+  std::thread serverThread = std::thread([&]() {
     server.serve();
   });
 

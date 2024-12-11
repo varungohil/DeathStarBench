@@ -123,7 +123,13 @@ int main(int argc, char *argv[]) {
 
 
   std::thread serverThread;
-  CustomNonblockingServer server(nullptr, nullptr, nullptr, nullptr, nullptr); // Default construct first
+  CustomNonblockingServer server(
+      std::make_shared<HomeTimelineServiceProcessor>(nullptr),  // Temporary processor
+      std::make_shared<TBinaryProtocolFactory>(),
+      server_socket,
+      std::make_shared<CustomThreadFactory>(false, &cpusetio),
+      workerThreadManager
+  );
 
   if (redis_replica_config_flag) {
           Redis redis_replica_client_pool = init_redis_replica_client_pool(config_json, "redis-replica");
