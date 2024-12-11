@@ -52,6 +52,7 @@
 // #include <thrift/transport/PlatformSocket.h>
 // #include "../../gen-cpp/HomeTimelineService.h"
 #include "CustomThreadManager.h"
+#include "CustomThreadFactory.h"
 
 #include <map>
 #include <functional>
@@ -727,6 +728,68 @@ public:
    * the framing size instead of stripping it.
    */
   bool getHeaderTransport();
+
+  /**
+   * Updates the CPU affinity for the thread pool managed by this server
+   * 
+   * @param cpuIds Vector of CPU IDs to bind the thread pool to
+   * @return true if successful, false if threadManager is not initialized
+   */
+  bool changeWorkerCpuset(const std::vector<int>& cpuIds) {
+    if (!threadManager_) {
+      return false;
+    }
+    
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    
+    // Add each CPU ID to the set
+    for (int cpu : cpuIds) {
+      CPU_SET(cpu, &cpuset);
+    }
+    
+    // Update thread manager's CPU affinity
+    threadManager_->changeCpuset(cpuset);
+    return true;
+  }
+
+  /**
+   * Updates the CPU affinity for the IO threads managed by this server
+   * 
+   * @param cpuIds Vector of CPU IDs to bind the IO threads to
+   * @return true if successful, false if IO threads are not initialized
+   */
+  bool changeIOCpuset(const std::vector<int>& cpuIds) {
+    if (ioThreads_.empty()) {
+        return false;
+    }
+
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    
+    // Add each CPU ID to the set
+    for (int cpu : cpuIds) {
+        CPU_SET(cpu, &cpuset);
+    }
+
+    // Update thread factory's CPU affinity if it exists
+    if (ioThreadFactory_) {
+        ioThreadFactory_->changeCpuset(&cpuset);
+    }
+
+    // Update each IO thread's CPU affinity through PthreadThread's changeCpuset
+    for (auto& ioThread : ioThreads_) {
+        if (ioThread && ioThread->getThread()) {
+            std::shared_ptr<PthreadThread> pthreadThread = 
+                std::dynamic_pointer_cast<PthreadThread>(ioThread->getThread());
+            if (pthreadThread) {
+                pthreadThread->changeCpuset(&cpuset);
+            }
+        }
+    }
+
+    return true;
+  }
 
 private:
   /**

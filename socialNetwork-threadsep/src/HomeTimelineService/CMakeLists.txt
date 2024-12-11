@@ -12,6 +12,7 @@ target_include_directories(
     /usr/local/include/jaegertracing
     /usr/local/include/hiredis
     /usr/local/include/sw
+    /usr/local/include/cpp-httplib
     ${LIBEVENT_INCLUDE_DIRS}
 )
 
