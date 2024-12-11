@@ -16,6 +16,24 @@ Supported actions:
 * Register/Login using user credentials
 * Follow/Unfollow user
 
+## Thread Separation Architecture
+
+This version of the Social Network application features thread separation between worker and I/O threads. Each service can be configured with:
+
+- Dedicated worker threads for request processing
+- Dedicated I/O threads for network operations
+- CPU core pinning for both worker and I/O threads
+
+Example configuration from service-config.json:
+```json
+{
+  "service-name": {
+    "num_worker_threads": 32,
+    "num_io_threads": 8,
+    "cpuset_worker": [0, 1, 2, 3, 4, 5, 6, 7],
+    "cpuset_io": [8, 9, 10, 11]
+  }
+}
 ## Pre-requirements
 
 * Docker
