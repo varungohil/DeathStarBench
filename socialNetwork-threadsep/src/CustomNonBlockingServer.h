@@ -407,6 +407,7 @@ public:
   ~CustomNonblockingServer();
 
   void setThreadManager(std::shared_ptr<CustomThreadManager> threadManager);
+  bool changeIOCpuset(const std::vector<int>& cpuIds);
   int getListenPort() { return serverTransport_->getListenPort(); }
 
   std::shared_ptr<CustomThreadManager> getThreadManager() { return threadManager_; }
