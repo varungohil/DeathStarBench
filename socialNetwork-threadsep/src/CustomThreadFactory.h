@@ -20,6 +20,9 @@
 #ifndef SOCIAL_NETWORK_MICROSERVICES_SRC_CUSTOMTHREADFACTORY_H_
 #define SOCIAL_NETWORK_MICROSERVICES_SRC_CUSTOMTHREADFACTORY_H_
 
+#include <iostream>
+#include <thrift/concurrency/Mutex.h>
+#include <thrift/concurrency/Monitor.h>
 #include <thrift/concurrency/Thread.h>
 
 /**
