@@ -12,9 +12,9 @@
 #include "UserHandler.h"
 
 using apache::thrift::protocol::TBinaryProtocolFactory;
-using apache::thrift::server::TThreadedServer;
-using apache::thrift::transport::TFramedTransportFactory;
-using apache::thrift::transport::TServerSocket;
+// using apache::thrift::server::TThreadedServer;
+// using apache::thrift::transport::TFramedTransportFactory;
+// using apache::thrift::transport::TServerSocket;
 using namespace social_network;
 
 void sigintHandler(int sig) { exit(EXIT_SUCCESS); }
