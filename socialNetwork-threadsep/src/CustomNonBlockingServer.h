@@ -759,37 +759,37 @@ public:
    * @param cpuIds Vector of CPU IDs to bind the IO threads to
    * @return true if successful, false if IO threads are not initialized
    */
-  bool changeIOCpuset(const std::vector<int>& cpuIds) {
-    if (ioThreads_.empty()) {
-        return false;
-    }
+  // bool changeIOCpuset(const std::vector<int>& cpuIds) {
+  //   if (ioThreads_.empty()) {
+  //       return false;
+  //   }
 
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
+  //   cpu_set_t cpuset;
+  //   CPU_ZERO(&cpuset);
     
-    // Add each CPU ID to the set
-    for (int cpu : cpuIds) {
-        CPU_SET(cpu, &cpuset);
-    }
+  //   // Add each CPU ID to the set
+  //   for (int cpu : cpuIds) {
+  //       CPU_SET(cpu, &cpuset);
+  //   }
 
-    // Update thread factory's CPU affinity if it exists
-    if (ioThreadFactory_) {
-        ioThreadFactory_->changeCpuset(&cpuset);
-    }
+  //   // Update thread factory's CPU affinity if it exists
+  //   if (ioThreadFactory_) {
+  //       ioThreadFactory_->changeCpuset(&cpuset);
+  //   }
 
-    // Update each IO thread's CPU affinity through PthreadThread's changeCpuset
-    for (auto& ioThread : ioThreads_) {
-        if (ioThread && ioThread->getThread()) {
-            std::shared_ptr<PthreadThread> pthreadThread = 
-                std::dynamic_pointer_cast<PthreadThread>(ioThread->getThread());
-            if (pthreadThread) {
-                pthreadThread->changeCpuset(&cpuset);
-            }
-        }
-    }
+  //   // Update each IO thread's CPU affinity through PthreadThread's changeCpuset
+  //   for (auto& ioThread : ioThreads_) {
+  //       if (ioThread && ioThread->getThread()) {
+  //           std::shared_ptr<PthreadThread> pthreadThread = 
+  //               std::dynamic_pointer_cast<PthreadThread>(ioThread->getThread());
+  //           if (pthreadThread) {
+  //               pthreadThread->changeCpuset(&cpuset);
+  //           }
+  //       }
+  //   }
 
-    return true;
-  }
+  //   return true;
+  // }
 
 private:
   /**
@@ -1959,6 +1959,41 @@ void CustomNonblockingServer::setThreadManager(std::shared_ptr<CustomThreadManag
   }
 }
 
+bool CustomNonblockingServer::changeIOCpuset(const std::vector<int>& cpuIds) {
+    if (ioThreads_.empty()) {
+        return false;
+    }
+
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    
+    // Add each CPU ID to the set
+    for (int cpu : cpuIds) {
+        CPU_SET(cpu, &cpuset);
+    }
+
+    // Update thread factory's CPU affinity if it exists
+    if (ioThreadFactory_) {
+        std::shared_ptr<CustomThreadFactory> customFactory = 
+            std::dynamic_pointer_cast<CustomThreadFactory>(ioThreadFactory_);
+        if (customFactory) {
+            customFactory->changeCpuset(&cpuset);
+        }
+    }
+
+    // Update each IO thread's CPU affinity
+    for (auto& ioThread : ioThreads_) {
+        if (ioThread && ioThread->getThread()) {
+            std::shared_ptr<PthreadThread> pthreadThread = 
+                std::dynamic_pointer_cast<PthreadThread>(ioThread->getThread());
+            if (pthreadThread) {
+                pthreadThread->changeCpuset(&cpuset);
+            }
+        }
+    }
+
+    return true;
+}
 
 bool CustomNonblockingServer::serverOverloaded() {
   size_t activeConnections = numTConnections_ - connectionStack_.size();
