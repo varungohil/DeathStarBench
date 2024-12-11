@@ -123,19 +123,12 @@ int main(int argc, char *argv[]) {
 
 
   std::thread serverThread;
-  CustomNonblockingServer server(
-      std::make_shared<HomeTimelineServiceProcessor>(nullptr),  // Temporary processor
-      std::make_shared<TBinaryProtocolFactory>(),
-      server_socket,
-      std::make_shared<CustomThreadFactory>(false, &cpusetio),
-      workerThreadManager
-  );
 
   if (redis_replica_config_flag) {
           Redis redis_replica_client_pool = init_redis_replica_client_pool(config_json, "redis-replica");
           Redis redis_primary_client_pool = init_redis_replica_client_pool(config_json, "redis-primary");
 
-          server = CustomNonblockingServer(
+          CustomNonblockingServer server(
               std::make_shared<HomeTimelineServiceProcessor>(
                   std::make_shared<HomeTimelineHandler>(&redis_replica_client_pool,
                                                         &redis_primary_client_pool,
@@ -153,12 +146,65 @@ int main(int argc, char *argv[]) {
           serverThread = std::thread([&]() {
             server.serve();
           });      
+
+          std::thread updateCpusetThread([&]() {
+              Server http_server;
+              http_server.Post("/update_cpuset", [&](const Request& req, Response& res) {
+                  try {
+                      auto j = json::parse(req.body);
+                      
+                      if (!j.contains("cpu_ids") || !j.contains("is_worker")) {
+                          throw std::runtime_error("Request body must contain 'cpu_ids' array and 'is_worker' boolean");
+                      }
+
+                      if (!j["cpu_ids"].is_array()) {
+                          throw std::runtime_error("cpu_ids must be an array of CPU IDs");
+                      }
+
+                      if (!j["is_worker"].is_boolean()) {
+                          throw std::runtime_error("is_worker must be a boolean value");
+                      }
+
+                      std::vector<int> cpu_ids;
+                      for (const auto& cpu_id : j["cpu_ids"]) {
+                          if (!cpu_id.is_number()) {
+                              throw std::runtime_error("Each element must be a CPU ID number");
+                          }
+                          cpu_ids.push_back(cpu_id.get<int>());
+                      }
+
+                      bool is_worker = j["is_worker"].get<bool>();
+
+                      bool success;
+                      if (is_worker) {
+                          success = server.changeWorkerCpuset(cpu_ids);
+                      } else {
+                          success = server.changeIOCpuset(cpu_ids);
+                      }
+
+                      if (success) {
+                          res.set_content("CPU set updated successfully", "text/plain");
+                      } else {
+                          res.status = 500;
+                          res.set_content("Failed to update CPU set - thread manager not initialized", "text/plain");
+                      }
+                      
+                  } catch (const std::exception& e) {
+                      res.status = 400;
+                      res.set_content(std::string("Failed to update CPU set: ") + e.what(), "text/plain");
+                  }
+              });
+              http_server.listen("0.0.0.0", updateCpusetPort);
+              while (true);
+          });
+          serverThread.join();
+          updateCpusetThread.join();
   }
   else if (redis_cluster_flag || redis_cluster_config_flag) {
           RedisCluster redis_cluster_client_pool =
               init_redis_cluster_client_pool(config_json, "home-timeline");
 
-          server = CustomNonblockingServer(
+          CustomNonblockingServer server(
               std::make_shared<HomeTimelineServiceProcessor>(
                   std::make_shared<HomeTimelineHandler>(&redis_cluster_client_pool,
                                                         &post_storage_client_pool,
@@ -175,11 +221,64 @@ int main(int argc, char *argv[]) {
           serverThread = std::thread([&]() {
             server.serve();
           });
+
+          std::thread updateCpusetThread([&]() {
+              Server http_server;
+              http_server.Post("/update_cpuset", [&](const Request& req, Response& res) {
+                  try {
+                      auto j = json::parse(req.body);
+                      
+                      if (!j.contains("cpu_ids") || !j.contains("is_worker")) {
+                          throw std::runtime_error("Request body must contain 'cpu_ids' array and 'is_worker' boolean");
+                      }
+
+                      if (!j["cpu_ids"].is_array()) {
+                          throw std::runtime_error("cpu_ids must be an array of CPU IDs");
+                      }
+
+                      if (!j["is_worker"].is_boolean()) {
+                          throw std::runtime_error("is_worker must be a boolean value");
+                      }
+
+                      std::vector<int> cpu_ids;
+                      for (const auto& cpu_id : j["cpu_ids"]) {
+                          if (!cpu_id.is_number()) {
+                              throw std::runtime_error("Each element must be a CPU ID number");
+                          }
+                          cpu_ids.push_back(cpu_id.get<int>());
+                      }
+
+                      bool is_worker = j["is_worker"].get<bool>();
+
+                      bool success;
+                      if (is_worker) {
+                          success = server.changeWorkerCpuset(cpu_ids);
+                      } else {
+                          success = server.changeIOCpuset(cpu_ids);
+                      }
+
+                      if (success) {
+                          res.set_content("CPU set updated successfully", "text/plain");
+                      } else {
+                          res.status = 500;
+                          res.set_content("Failed to update CPU set - thread manager not initialized", "text/plain");
+                      }
+                      
+                  } catch (const std::exception& e) {
+                      res.status = 400;
+                      res.set_content(std::string("Failed to update CPU set: ") + e.what(), "text/plain");
+                  }
+              });
+              http_server.listen("0.0.0.0", updateCpusetPort);
+              while (true);
+          });
+          serverThread.join();
+          updateCpusetThread.join();
   } else {
           Redis redis_client_pool =
               init_redis_client_pool(config_json, "home-timeline");
 
-          server = CustomNonblockingServer(
+          CustomNonblockingServer server(
               std::make_shared<HomeTimelineServiceProcessor>(
                   std::make_shared<HomeTimelineHandler>(&redis_client_pool,
                                                         &post_storage_client_pool,
@@ -196,64 +295,58 @@ int main(int argc, char *argv[]) {
           serverThread = std::thread([&]() {
             server.serve();
           });
+
+          std::thread updateCpusetThread([&]() {
+              Server http_server;
+              http_server.Post("/update_cpuset", [&](const Request& req, Response& res) {
+                  try {
+                      auto j = json::parse(req.body);
+                      
+                      if (!j.contains("cpu_ids") || !j.contains("is_worker")) {
+                          throw std::runtime_error("Request body must contain 'cpu_ids' array and 'is_worker' boolean");
+                      }
+
+                      if (!j["cpu_ids"].is_array()) {
+                          throw std::runtime_error("cpu_ids must be an array of CPU IDs");
+                      }
+
+                      if (!j["is_worker"].is_boolean()) {
+                          throw std::runtime_error("is_worker must be a boolean value");
+                      }
+
+                      std::vector<int> cpu_ids;
+                      for (const auto& cpu_id : j["cpu_ids"]) {
+                          if (!cpu_id.is_number()) {
+                              throw std::runtime_error("Each element must be a CPU ID number");
+                          }
+                          cpu_ids.push_back(cpu_id.get<int>());
+                      }
+
+                      bool is_worker = j["is_worker"].get<bool>();
+
+                      bool success;
+                      if (is_worker) {
+                          success = server.changeWorkerCpuset(cpu_ids);
+                      } else {
+                          success = server.changeIOCpuset(cpu_ids);
+                      }
+
+                      if (success) {
+                          res.set_content("CPU set updated successfully", "text/plain");
+                      } else {
+                          res.status = 500;
+                          res.set_content("Failed to update CPU set - thread manager not initialized", "text/plain");
+                      }
+                      
+                  } catch (const std::exception& e) {
+                      res.status = 400;
+                      res.set_content(std::string("Failed to update CPU set: ") + e.what(), "text/plain");
+                  }
+              });
+              http_server.listen("0.0.0.0", updateCpusetPort);
+              while (true);
+          });
+          serverThread.join();
+          updateCpusetThread.join();
   }
-  int updateCpusetPort =  config_json["home-timeline-service"]["update_cpuset_port"];
-
-  std::thread updateCpusetThread([&]() {
-        Server http_server;
-
-        http_server.Post("/update_cpuset", [&](const Request& req, Response& res) {
-            try {
-                auto j = json::parse(req.body);
-                
-                if (!j.contains("cpu_ids") || !j.contains("is_worker")) {
-                    throw std::runtime_error("Request body must contain 'cpu_ids' array and 'is_worker' boolean");
-                }
-
-                if (!j["cpu_ids"].is_array()) {
-                    throw std::runtime_error("cpu_ids must be an array of CPU IDs");
-                }
-
-                if (!j["is_worker"].is_boolean()) {
-                    throw std::runtime_error("is_worker must be a boolean value");
-                }
-
-                std::vector<int> cpu_ids;
-                for (const auto& cpu_id : j["cpu_ids"]) {
-                    if (!cpu_id.is_number()) {
-                        throw std::runtime_error("Each element must be a CPU ID number");
-                    }
-                    cpu_ids.push_back(cpu_id.get<int>());
-                }
-
-                bool is_worker = j["is_worker"].get<bool>();
-
-                bool success;
-                if (is_worker) {
-                    success = server.changeWorkerCpuset(cpu_ids);
-                } else {
-                    success = server.changeIOCpuset(cpu_ids);
-                }
-
-                if (success) {
-                    res.set_content("CPU set updated successfully", "text/plain");
-                } else {
-                    res.status = 500;
-                    res.set_content("Failed to update CPU set - thread manager not initialized", "text/plain");
-                }
-                
-            } catch (const std::exception& e) {
-                res.status = 400;
-                res.set_content(std::string("Failed to update CPU set: ") + e.what(), "text/plain");
-            }
-        });
-
-        http_server.listen("0.0.0.0", updateCpusetPort);
-
-        std::cout << "Update CPU set server is listening at port " << updateCpusetPort << std::endl;
-        while (true);
-  });
-
-  serverThread.join();
-  updateCpusetThread.join();
 }
