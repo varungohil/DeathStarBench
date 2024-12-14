@@ -1,3 +1,6 @@
 [submodule "wrk2/deps/luajit"]
 	path = wrk2/deps/luajit
 	url = https://github.com/LuaJIT/LuaJIT.git
+[submodule "socialNetwork-threadsep/cpp-httplib"]
+	path = socialNetwork-threadsep/cpp-httplib
+	url = https://github.com/yhirose/cpp-httplib.git

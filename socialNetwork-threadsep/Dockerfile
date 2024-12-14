@@ -11,12 +11,14 @@ RUN cd /tmp/redis-plus-plus\
 && make install
 
 COPY ./ /social-network-microservices
+COPY cpp-httplib/httplib.h /usr/local/include/httplib.h
 RUN cd /social-network-microservices \
     && mkdir -p build \
     && cd build \
     && cmake -DCMAKE_BUILD_TYPE=Debug .. \
     && make -j$(nproc) \
     && make install
+
 
 FROM ubuntu:16.04
 
