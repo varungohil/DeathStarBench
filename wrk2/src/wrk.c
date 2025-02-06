@@ -29,6 +29,7 @@ static struct config {
     bool     record_all_responses;
     bool     print_all_responses;
     bool     print_realtime_latency;
+    bool     print_sampled_rates;
     char    *script;
     SSL_CTX *ctx; //https://www.openssl.org/docs/man3.0/man3/SSL_CTX_new.html
 } cfg;
@@ -407,6 +408,14 @@ void *thread_main(void *arg) {
         thread->ff = fopen(filename, "w");
     }
 
+    if ((cfg.print_sampled_rates) && ((thread->tid%cfg.threads) == 0)) {
+        char filename[50];
+        // snprintf(filename, 50, "/filer-01/datasets/nginx/url%" PRIu64 "thread%" PRIu64 ".txt", (thread->tid/cfg.threads), (thread->tid%cfg.threads));
+        snprintf(filename, 50, "%s/sampledrates-url%" PRIu64 "thread%" PRIu64 ".txt", getcwd(NULL,0), (thread->tid/cfg.threads), (thread->tid%cfg.threads));
+        printf("sampled rates filename %s\n",filename);
+        thread->ff = fopen(filename, "w");
+    }
+
     // thread->throughput: request/thread/sec
     // c->throughput = throughput: request/connection/us
     double throughput = (thread->throughput / 1000000.0) / thread->connections;
@@ -443,6 +452,7 @@ void *thread_main(void *arg) {
     zfree(thread->cs);
 
     if (cfg.print_realtime_latency && (thread->tid % cfg.threads) == 0) fclose(thread->ff);
+    if (cfg.print_sampled_rates && (thread->tid % cfg.threads) == 0) fclose(thread->ff);
 
     return NULL;
 }
@@ -554,6 +564,11 @@ static int sample_rate(aeEventLoop *loop, long long id, void *data) {
     pthread_mutex_lock(&statistics.mutex);
     stats_record(statistics.requests[id_url], requests);
     pthread_mutex_unlock(&statistics.mutex);
+
+    if (cfg.print_sampled_rates && (thread->tid%cfg.threads) == 0) {
+        fprintf(thread->ff, "%" PRId64 "\n", requests);
+        fflush(thread->ff);
+    }
 
     thread->requests = 0;
     thread->start    = time_us();
@@ -889,6 +904,7 @@ static int parse_args(struct config *cfg, char ***urls, struct http_parser_url *
     cfg->record_all_responses = true;
     cfg->print_all_responses = false;
     cfg->print_realtime_latency = false;
+    cfg->print_sampled_rates = false;
     cfg->print_separate_histograms = false;
     cfg->print_sent_requests = false;
     cfg->dist = 0;
@@ -925,6 +941,9 @@ static int parse_args(struct config *cfg, char ***urls, struct http_parser_url *
                 break;
             case 'p': /* Shuang: print avg latency every 0.2s */
                 cfg->print_realtime_latency = true;
+                break;
+            case 'x': /* Varun: print sampled rates */
+                cfg->print_sampled_rates = true;
                 break;
             case 'L':
                 cfg->latency = true;
