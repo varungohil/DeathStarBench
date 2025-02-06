@@ -82,7 +82,7 @@ static void usage() {
            "    -R, --rate        <T>  work rate (throughput)                \n"
            "                           in requests/sec (total)               \n"
            "                           [Required Parameter]                  \n"
-           "                                                                 \n"
+           "    -x                     Logs sampled rates to file            \n"
            "                                                                 \n"
            "  Numeric arguments may include a SI unit (1k, 1M, 1G)           \n"
            "  Time arguments may include a time unit (2s, 2m, 2h)            \n");
@@ -909,7 +909,7 @@ static int parse_args(struct config *cfg, char ***urls, struct http_parser_url *
     cfg->print_sent_requests = false;
     cfg->dist = 0;
 
-    while ((c = getopt_long(argc, argv, "t:c:s:d:D:H:T:R:LPrSpBv?", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "t:c:s:d:D:H:T:R:LPrSpBvx?", longopts, NULL)) != -1) {
         switch (c) {
             case 't':
                 if (scan_metric(optarg, &cfg->threads)) return -1;
