@@ -443,12 +443,12 @@ void PostStorageHandler::ReadPosts(
       // LOG(info) << new_post;
       post_ids_not_cached.erase(new_post.post_id);
     } else {
-      LOG(error) << "Cannot get post " << post_ids[i] << " of request " << req_id;
-      ServiceException se;
-      se.errorCode = ErrorCode::SE_MEMCACHED_ERROR;
-      se.message = "Cannot get post " + std::to_string(post_ids[i]) + " of request " + std::to_string(req_id);
-      memcached_pool_push(_memcached_client_pool, memcached_client);
-      throw se;
+      LOG(debug) << "Cannot get post " << post_ids[i] << " of request " << req_id;
+      // ServiceException se;
+      // se.errorCode = ErrorCode::SE_MEMCACHED_ERROR;
+      // se.message = "Cannot get post " + std::to_string(post_ids[i]) + " of request " + std::to_string(req_id);
+      // memcached_pool_push(_memcached_client_pool, memcached_client);
+      // throw se;
     }
   }
 
