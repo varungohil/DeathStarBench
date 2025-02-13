@@ -12,7 +12,7 @@ target_include_directories(
     ${LIBMEMCACHED_INCLUDE_DIR}
     ${MONGOC_INCLUDE_DIRS}
     /usr/local/include/jwt
-    /usr/local/include/jaegertracing
+    /usr/local/include/opentelemetry
 )
 
 target_link_libraries(
@@ -26,6 +26,10 @@ target_link_libraries(
     Boost::log
     Boost::log_setup
     jaegertracing
+    opentelemetry_trace
+    opentelemetry_common
+    opentelemetry_exporter_otlp_http
+    opentelemetry_resources
     OpenSSL::SSL
 )
 
