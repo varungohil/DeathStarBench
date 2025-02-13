@@ -21,12 +21,16 @@
 #include "../ThriftClient.h"
 #include "../logger.h"
 #include "../tracing.h"
+#include "opentelemetry/trace/context.h"
 
 namespace social_network {
 using json = nlohmann::json;
 using std::chrono::duration_cast;
 using std::chrono::milliseconds;
 using std::chrono::system_clock;
+using namespace opentelemetry::trace;
+using namespace opentelemetry::context;
+using namespace opentelemetry::trace::propagation;
 
 class ComposePostHandler : public ComposePostServiceIf {
  public:
@@ -110,13 +114,31 @@ ComposePostHandler::ComposePostHandler(
 Creator ComposePostHandler::_ComposeCreaterHelper(
     int64_t req_id, int64_t user_id, const std::string &username,
     const std::map<std::string, std::string> &carrier) {
-  TextMapReader reader(carrier);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "compose_creator_client", {opentracing::ChildOf(parent_span->get())});
+
+  // TextMapReader reader(carrier);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = opentracing::Tracer::Global()->StartSpan(
+  //     "compose_creator_client", {opentracing::ChildOf(parent_span->get())});
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("compose-post-service");
+  auto span = tracer->StartSpan("compose_creator_client", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
+
 
   auto user_client_wrapper = _user_service_client_pool->Pop();
   if (!user_client_wrapper) {
@@ -124,7 +146,7 @@ Creator ComposePostHandler::_ComposeCreaterHelper(
     se.errorCode = ErrorCode::SE_THRIFT_CONN_ERROR;
     se.message = "Failed to connect to user-service";
     LOG(error) << se.message;
-    span->Finish();
+    span->End();
     throw se;
   }
 
@@ -136,24 +158,43 @@ Creator ComposePostHandler::_ComposeCreaterHelper(
   } catch (...) {
     LOG(error) << "Failed to send compose-creator to user-service";
     _user_service_client_pool->Remove(user_client_wrapper);
-    span->Finish();
+    span->End();
     throw;
   }
   _user_service_client_pool->Keepalive(user_client_wrapper);
-  span->Finish();
+  span->End();
   return _return_creator;
 }
 
 TextServiceReturn ComposePostHandler::_ComposeTextHelper(
     int64_t req_id, const std::string &text,
     const std::map<std::string, std::string> &carrier) {
-  TextMapReader reader(carrier);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "compose_text_client", {opentracing::ChildOf(parent_span->get())});
+
+  // TextMapReader reader(carrier);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = opentracing::Tracer::Global()->StartSpan(
+  //     "compose_text_client", {opentracing::ChildOf(parent_span->get())});
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("compose-post-service");
+  auto span = tracer->StartSpan("compose_text_client", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
+
 
   auto text_client_wrapper = _text_service_client_pool->Pop();
   if (!text_client_wrapper) {
@@ -162,7 +203,7 @@ TextServiceReturn ComposePostHandler::_ComposeTextHelper(
     se.message = "Failed to connect to text-service";
     LOG(error) << se.message;
     ;
-    span->Finish();
+    span->End();
     throw se;
   }
 
@@ -173,11 +214,11 @@ TextServiceReturn ComposePostHandler::_ComposeTextHelper(
   } catch (...) {
     LOG(error) << "Failed to send compose-text to text-service";
     _text_service_client_pool->Remove(text_client_wrapper);
-    span->Finish();
+    span->End();
     throw;
   }
   _text_service_client_pool->Keepalive(text_client_wrapper);
-  span->Finish();
+  span->End();
   return _return_text;
 }
 
@@ -185,13 +226,30 @@ std::vector<Media> ComposePostHandler::_ComposeMediaHelper(
     int64_t req_id, const std::vector<std::string> &media_types,
     const std::vector<int64_t> &media_ids,
     const std::map<std::string, std::string> &carrier) {
-  TextMapReader reader(carrier);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "compose_media_client", {opentracing::ChildOf(parent_span->get())});
+  // TextMapReader reader(carrier);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = opentracing::Tracer::Global()->StartSpan(
+  //     "compose_media_client", {opentracing::ChildOf(parent_span->get())});
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("compose-post-service");
+  auto span = tracer->StartSpan("compose_media_client", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
+
 
   auto media_client_wrapper = _media_service_client_pool->Pop();
   if (!media_client_wrapper) {
@@ -200,7 +258,7 @@ std::vector<Media> ComposePostHandler::_ComposeMediaHelper(
     se.message = "Failed to connect to media-service";
     LOG(error) << se.message;
     ;
-    span->Finish();
+    span->End();
     throw se;
   }
 
@@ -212,24 +270,40 @@ std::vector<Media> ComposePostHandler::_ComposeMediaHelper(
   } catch (...) {
     LOG(error) << "Failed to send compose-media to media-service";
     _media_service_client_pool->Remove(media_client_wrapper);
-    span->Finish();
+    span->End();
     throw;
   }
   _media_service_client_pool->Keepalive(media_client_wrapper);
-  span->Finish();
+  span->End();
   return _return_media;
 }
 
 int64_t ComposePostHandler::_ComposeUniqueIdHelper(
     int64_t req_id, const PostType::type post_type,
     const std::map<std::string, std::string> &carrier) {
-  TextMapReader reader(carrier);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "compose_unique_id_client", {opentracing::ChildOf(parent_span->get())});
+  // TextMapReader reader(carrier);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = opentracing::Tracer::Global()->StartSpan(
+  //     "compose_unique_id_client", {opentracing::ChildOf(parent_span->get())});
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("compose-post-service");
+  auto span = tracer->StartSpan("compose_unique_id_client", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   auto unique_id_client_wrapper = _unique_id_service_client_pool->Pop();
   if (!unique_id_client_wrapper) {
@@ -237,7 +311,7 @@ int64_t ComposePostHandler::_ComposeUniqueIdHelper(
     se.errorCode = ErrorCode::SE_THRIFT_CONN_ERROR;
     se.message = "Failed to connect to unique_id-service";
     LOG(error) << se.message;
-    span->Finish();
+    span->End();
     throw se;
   }
 
@@ -249,24 +323,40 @@ int64_t ComposePostHandler::_ComposeUniqueIdHelper(
   } catch (...) {
     LOG(error) << "Failed to send compose-unique_id to unique_id-service";
     _unique_id_service_client_pool->Remove(unique_id_client_wrapper);
-    span->Finish();
+    span->End();
     throw;
   }
   _unique_id_service_client_pool->Keepalive(unique_id_client_wrapper);
-  span->Finish();
+  span->End();
   return _return_unique_id;
 }
 
 void ComposePostHandler::_UploadPostHelper(
     int64_t req_id, const Post &post,
     const std::map<std::string, std::string> &carrier) {
-  TextMapReader reader(carrier);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "store_post_client", {opentracing::ChildOf(parent_span->get())});
+  // TextMapReader reader(carrier);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = opentracing::Tracer::Global()->StartSpan(
+  //     "store_post_client", {opentracing::ChildOf(parent_span->get())});
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("compose-post-service");
+  auto span = tracer->StartSpan("store_post_client", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   auto post_storage_client_wrapper = _post_storage_client_pool->Pop();
   if (!post_storage_client_wrapper) {
@@ -274,7 +364,7 @@ void ComposePostHandler::_UploadPostHelper(
     se.errorCode = ErrorCode::SE_THRIFT_CONN_ERROR;
     se.message = "Failed to connect to post-storage-service";
     LOG(error) << se.message;
-    ;
+    span->End();
     throw se;
   }
   auto post_storage_client = post_storage_client_wrapper->GetClient();
@@ -283,23 +373,40 @@ void ComposePostHandler::_UploadPostHelper(
   } catch (...) {
     _post_storage_client_pool->Remove(post_storage_client_wrapper);
     LOG(error) << "Failed to store post to post-storage-service";
+    span->End();
     throw;
   }
   _post_storage_client_pool->Keepalive(post_storage_client_wrapper);
 
-  span->Finish();
+  span->End();
 }
 
 void ComposePostHandler::_UploadUserTimelineHelper(
     int64_t req_id, int64_t post_id, int64_t user_id, int64_t timestamp,
     const std::map<std::string, std::string> &carrier) {
-  TextMapReader reader(carrier);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "write_user_timeline_client", {opentracing::ChildOf(parent_span->get())});
+  // TextMapReader reader(carrier);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = opentracing::Tracer::Global()->StartSpan(
+  //     "write_user_timeline_client", {opentracing::ChildOf(parent_span->get())});
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("compose-post-service");
+  auto span = tracer->StartSpan("write_user_timeline_client", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   auto user_timeline_client_wrapper = _user_timeline_client_pool->Pop();
   if (!user_timeline_client_wrapper) {
@@ -307,7 +414,7 @@ void ComposePostHandler::_UploadUserTimelineHelper(
     se.errorCode = ErrorCode::SE_THRIFT_CONN_ERROR;
     se.message = "Failed to connect to user-timeline-service";
     LOG(error) << se.message;
-    ;
+    span->End();
     throw se;
   }
   auto user_timeline_client = user_timeline_client_wrapper->GetClient();
@@ -316,24 +423,43 @@ void ComposePostHandler::_UploadUserTimelineHelper(
                                             writer_text_map);
   } catch (...) {
     _user_timeline_client_pool->Remove(user_timeline_client_wrapper);
+    span->End();
     throw;
   }
   _user_timeline_client_pool->Keepalive(user_timeline_client_wrapper);
 
-  span->Finish();
+  span->End();
 }
 
 void ComposePostHandler::_UploadHomeTimelineHelper(
     int64_t req_id, int64_t post_id, int64_t user_id, int64_t timestamp,
     const std::vector<int64_t> &user_mentions_id,
     const std::map<std::string, std::string> &carrier) {
-  TextMapReader reader(carrier);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "write_home_timeline_client", {opentracing::ChildOf(parent_span->get())});
+  // TextMapReader reader(carrier);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = opentracing::Tracer::Global()->StartSpan(
+  //     "write_home_timeline_client", {opentracing::ChildOf(parent_span->get())});
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("compose-post-service");
+  auto span = tracer->StartSpan("write_home_timeline_client", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
+
 
   auto home_timeline_client_wrapper = _home_timeline_client_pool->Pop();
   if (!home_timeline_client_wrapper) {
@@ -341,7 +467,7 @@ void ComposePostHandler::_UploadHomeTimelineHelper(
     se.errorCode = ErrorCode::SE_THRIFT_CONN_ERROR;
     se.message = "Failed to connect to home-timeline-service";
     LOG(error) << se.message;
-    ;
+    span->End();
     throw se;
   }
   auto home_timeline_client = home_timeline_client_wrapper->GetClient();
@@ -351,11 +477,12 @@ void ComposePostHandler::_UploadHomeTimelineHelper(
   } catch (...) {
     _home_timeline_client_pool->Remove(home_timeline_client_wrapper);
     LOG(error) << "Failed to write home timeline to home-timeline-service";
+    span->End();
     throw;
   }
   _home_timeline_client_pool->Keepalive(home_timeline_client_wrapper);
 
-  span->Finish();
+  span->End();
 }
 
 void ComposePostHandler::ComposePost(
@@ -363,13 +490,29 @@ void ComposePostHandler::ComposePost(
     const std::string &text, const std::vector<int64_t> &media_ids,
     const std::vector<std::string> &media_types, const PostType::type post_type,
     const std::map<std::string, std::string> &carrier) {
-  TextMapReader reader(carrier);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "compose_post_server", {opentracing::ChildOf(parent_span->get())});
+  // TextMapReader reader(carrier);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = opentracing::Tracer::Global()->StartSpan(
+  //     "compose_post_server", {opentracing::ChildOf(parent_span->get())});
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("compose-post-service");
+  auto span = tracer->StartSpan("compose_post_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   auto text_future =
       std::async(std::launch::async, &ComposePostHandler::_ComposeTextHelper,
@@ -437,7 +580,7 @@ void ComposePostHandler::ComposePost(
   // {
   //   throw;
   // }
-  span->Finish();
+  span->End();
 }
 
 }  // namespace social_network

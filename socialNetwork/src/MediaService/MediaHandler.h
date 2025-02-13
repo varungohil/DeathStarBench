@@ -8,11 +8,16 @@
 #include "../../gen-cpp/MediaService.h"
 #include "../logger.h"
 #include "../tracing.h"
+#include "opentelemetry/trace/context.h"
 
 // 2018-01-01 00:00:00 UTC
 #define CUSTOM_EPOCH 1514764800000
 
 namespace social_network {
+
+using namespace opentelemetry::trace;
+using namespace opentelemetry::context;
+using namespace opentelemetry::trace::propagation;
 
 class MediaHandler : public MediaServiceIf {
  public:
@@ -33,19 +38,37 @@ void MediaHandler::ComposeMedia(
     const std::vector<int64_t> &media_ids,
     const std::map<std::string, std::string> &carrier) {
   // Initialize a span
-  TextMapReader reader(carrier);
+  // TextMapReader reader(carrier);
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = opentracing::Tracer::Global()->StartSpan(
+  //     "compose_media_server", {opentracing::ChildOf(parent_span->get())});
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("media-service");
+  auto span = tracer->StartSpan("compose_media_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "compose_media_server", {opentracing::ChildOf(parent_span->get())});
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
+
 
   if (media_types.size() != media_ids.size()) {
     ServiceException se;
     se.errorCode = ErrorCode::SE_THRIFT_HANDLER_ERROR;
     se.message =
         "The lengths of media_id list and media_type list are not equal";
+    span->End();
     throw se;
   }
 
@@ -56,7 +79,7 @@ void MediaHandler::ComposeMedia(
     _return.emplace_back(new_media);
   }
 
-  span->Finish();
+  span->End();
 }
 
 }  // namespace social_network

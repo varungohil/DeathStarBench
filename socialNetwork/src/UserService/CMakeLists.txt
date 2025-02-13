@@ -25,11 +25,13 @@ target_link_libraries(
     ${Boost_LIBRARIES}
     Boost::log
     Boost::log_setup
-    jaegertracing
-    opentelemetry_trace
-    opentelemetry_common
-    opentelemetry_exporter_otlp_http
-    opentelemetry_resources
+    # jaegertracing
+    # opentelemetry_trace
+    # opentelemetry_common
+    # opentelemetry_exporter_otlp_http
+    # opentelemetry_resources
+    yaml-cpp
+    ${OTEL_LIBS}
     OpenSSL::SSL
 )
 
