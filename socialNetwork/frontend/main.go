@@ -936,6 +936,21 @@ func main() {
         poolSize,
     )
 
+    http.HandleFunc("/oteltest", func(w http.ResponseWriter, r *http.Request) {
+
+        ctx := r.Context()
+        tracer := otel.Tracer("frontend-service")
+        
+        ctx, span := tracer.Start(ctx, "HTTP /oteltest")
+        span.SetAttributes(
+            attribute.String("http.method", r.Method),
+            attribute.String("http.url", r.URL.String()),
+        )
+        log.trace("in otel test")
+        time.sleep(1)
+        defer span.End()
+
+    })
     // HTTP handler for /wrk2-api/home-timeline/read endpoint
     http.HandleFunc("/wrk2-api/home-timeline/read", func(w http.ResponseWriter, r *http.Request) {
         startTime := time.Now()
