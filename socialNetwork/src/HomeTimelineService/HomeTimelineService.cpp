@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  SetUpTracer("config/jaeger-config.yml", "home-timeline-service");
+  SetUpTracer("config/otel-collector-config.yml", "home-timeline-service");
 
   json config_json;
   if (load_config_file("config/service-config.json", &config_json) != 0) {

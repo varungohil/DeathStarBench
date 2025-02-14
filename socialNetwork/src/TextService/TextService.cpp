@@ -19,7 +19,7 @@ void sigintHandler(int sig) { exit(EXIT_SUCCESS); }
 int main(int argc, char *argv[]) {
   signal(SIGINT, sigintHandler);
   init_logger();
-  SetUpTracer("config/jaeger-config.yml", "text-service");
+  SetUpTracer("config/otel-collector-config.yml", "text-service");
 
   json config_json;
   if (load_config_file("config/service-config.json", &config_json) == 0) {

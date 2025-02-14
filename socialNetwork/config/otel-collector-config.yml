@@ -1,0 +1,20 @@
+receivers:
+  otlp:
+    protocols:
+      http:  # HTTP receiver configuration
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+exporters:
+  otlp/grpc:  # gRPC exporter configuration
+    endpoint: "jaeger-agent:4317"
+    tls:
+      insecure: true  # For non-production environments
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: []
+      exporters: [otlp/grpc]
