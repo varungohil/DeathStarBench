@@ -363,7 +363,7 @@ services:
     image: varungohil/social-network-frontend-go:latest
     hostname: frontend
     ports:
-      - 8081:8081
+      - 12345:12345
     depends_on:
       jaeger-agent:
         condition: service_started
@@ -381,7 +381,7 @@ services:
         condition: service_started
     restart: always
     environment:
-      - FRONTEND_PORT=8081
+      - FRONTEND_PORT=12345
       - FRONTEND_ADDR=localhost
       - LOG_LEVEL=info
     volumes:
