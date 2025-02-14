@@ -103,16 +103,16 @@ inline void SetUpTracer(
   auto processor =
       opentelemetry::sdk::trace::SimpleSpanProcessorFactory::Create(std::move(exporter));
 
-  opentelemetry::sdk::trace::TracerProviderOptions tp_opts;
-  tp_opts.resource = resource;
+  // opentelemetry::sdk::trace::TracerProviderOptions tp_opts;
+  // tp_opts.resource = resource;
 
   std::vector<std::unique_ptr<opentelemetry::sdk::trace::SpanProcessor>> processors;
   processors.push_back(std::move(processor));
   // Default is an always-on sampler.
   std::unique_ptr<opentelemetry::sdk::trace::TracerContext> context =
-      opentelemetry::sdk::trace::TracerContextFactory::Create(std::move(processors));
+      opentelemetry::sdk::trace::TracerContextFactory::Create(std::move(processors). resource);
   std::shared_ptr<opentelemetry::trace::TracerProvider> provider =
-      opentelemetry::sdk::trace::TracerProviderFactory::Create(std::move(context), tp_opts);
+      opentelemetry::sdk::trace::TracerProviderFactory::Create(std::move(context));
   // Set the global trace provider
   opentelemetry::trace::Provider::SetTracerProvider(provider);
 
