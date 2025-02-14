@@ -168,8 +168,12 @@ void SocialGraphHandler::Follow(
                                   BCON_INT64(timestamp), "}", "}");
         bson_error_t error;
         bson_t reply;
+
         auto update_span = tracer->StartSpan(
-            "mongo_update_client");
+            "mongo_update_client",
+            opentelemetry::trace::StartSpanOptions{},
+            span->GetContext()
+        );
         bool updated = mongoc_collection_find_and_modify(
             collection, search_not_exist, nullptr, update, nullptr, false,
             false, true, &reply, &error);
@@ -224,7 +228,9 @@ void SocialGraphHandler::Follow(
                                   BCON_INT64(timestamp), "}", "}");
         bson_error_t error;
         auto update_span = tracer->StartSpan(
-            "social_graph_mongo_update_client"
+            "social_graph_mongo_update_client",
+            opentelemetry::trace::StartSpanOptions{},
+            span->GetContext()
             );
         bson_t reply;
         bool updated = mongoc_collection_find_and_modify(
@@ -253,7 +259,9 @@ void SocialGraphHandler::Follow(
 
   std::future<void> redis_update_future = std::async(std::launch::async, [&]() {
     auto redis_span = tracer->StartSpan(
-        "social_graph_redis_update_client"
+        "social_graph_redis_update_client",
+        opentelemetry::trace::StartSpanOptions{},
+        span->GetContext()
         );
 
     {
@@ -379,6 +387,8 @@ void SocialGraphHandler::Unfollow(
         bson_error_t error;
         auto update_span = tracer->StartSpan(
             "social_graph_mongo_delete_client"
+            opentelemetry::trace::StartSpanOptions{},
+            span->GetContext()
             );
         bool updated = mongoc_collection_find_and_modify(
             collection, query, nullptr, update, nullptr, false, false, true,
@@ -432,7 +442,9 @@ void SocialGraphHandler::Unfollow(
         bson_t reply;
         bson_error_t error;
         auto update_span = tracer->StartSpan(
-            "social_graph_mongo_delete_client"
+            "social_graph_mongo_delete_client",
+            opentelemetry::trace::StartSpanOptions{},
+            span->GetContext()
             );
         bool updated = mongoc_collection_find_and_modify(
             collection, query, nullptr, update, nullptr, false, false, true,
@@ -460,7 +472,9 @@ void SocialGraphHandler::Unfollow(
 
   std::future<void> redis_update_future = std::async(std::launch::async, [&]() {
     auto redis_span = tracer->StartSpan(
-        "social_graph_redis_update_client"
+        "social_graph_redis_update_client",
+        opentelemetry::trace::StartSpanOptions{},
+        span->GetContext()
         );
     {
       if (_redis_client_pool) {
@@ -949,6 +963,9 @@ void SocialGraphHandler::FollowWithUsername(
     }
     auto user_client = user_client_wrapper->GetClient();
     int64_t _return;
+    user_id_span->StartSpan("get_user_id_call",
+        opentelemetry::trace::StartSpanOptions{},
+        span->GetContext());
     try {
       _return = user_client->GetUserId(req_id, user_name, writer_text_map);
     } catch (...) {
@@ -956,6 +973,7 @@ void SocialGraphHandler::FollowWithUsername(
       LOG(error) << "Failed to get user_id from user-service";
       throw;
     }
+    user_id_span->End();
     _user_service_client_pool->Keepalive(user_client_wrapper);
     return _return;
   });
@@ -971,6 +989,9 @@ void SocialGraphHandler::FollowWithUsername(
         }
         auto user_client = user_client_wrapper->GetClient();
         int64_t _return;
+        user_id_span->StartSpan("get_followee_id_call",
+            opentelemetry::trace::StartSpanOptions{},
+            span->GetContext());
         try {
           _return =
               user_client->GetUserId(req_id, followee_name, writer_text_map);
@@ -979,6 +1000,7 @@ void SocialGraphHandler::FollowWithUsername(
           LOG(error) << "Failed to get user_id from user-service";
           throw;
         }
+        user_id_span->End();
         _user_service_client_pool->Keepalive(user_client_wrapper);
         return _return;
       });
@@ -1039,6 +1061,9 @@ void SocialGraphHandler::UnfollowWithUsername(
     }
     auto user_client = user_client_wrapper->GetClient();
     int64_t _return;
+    user_id_span->StartSpan("get_user_id_call",
+        opentelemetry::trace::StartSpanOptions{},
+        span->GetContext());
     try {
       _return = user_client->GetUserId(req_id, user_name, writer_text_map);
     } catch (...) {
@@ -1046,6 +1071,7 @@ void SocialGraphHandler::UnfollowWithUsername(
       LOG(error) << "Failed to get user_id from user-service";
       throw;
     }
+    user_id_span->End();
     _user_service_client_pool->Keepalive(user_client_wrapper);
     return _return;
   });
@@ -1061,6 +1087,9 @@ void SocialGraphHandler::UnfollowWithUsername(
         }
         auto user_client = user_client_wrapper->GetClient();
         int64_t _return;
+        user_id_span->StartSpan("get_followee_id_call",
+            opentelemetry::trace::StartSpanOptions{},
+            span->GetContext());
         try {
           _return =
               user_client->GetUserId(req_id, followee_name, writer_text_map);
@@ -1069,6 +1098,7 @@ void SocialGraphHandler::UnfollowWithUsername(
           LOG(error) << "Failed to get user_id from user-service";
           throw;
         }
+        user_id_span->End();
         _user_service_client_pool->Keepalive(user_client_wrapper);
         return _return;
       });
