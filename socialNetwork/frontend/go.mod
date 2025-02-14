@@ -4,8 +4,13 @@ go 1.17
 
 require (
 	github.com/apache/thrift v0.12.0
-	github.com/opentracing/opentracing-go v1.2.0
-	github.com/uber/jaeger-client-go v2.30.0+incompatible
+	<!-- github.com/opentracing/opentracing-go v1.2.0 -->
+	<!-- github.com/uber/jaeger-client-go v2.30.0+incompatible -->
+    go.opentelemetry.io/otel v1.24.0
+    go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.24.0
+    go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.24.0
+    go.opentelemetry.io/otel/sdk v1.24.0
+    go.opentelemetry.io/otel/trace v1.24.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 

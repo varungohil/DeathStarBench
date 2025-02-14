@@ -19,11 +19,19 @@ import (
     // "bytes"
 
     "github.com/apache/thrift/lib/go/thrift"
-    "github.com/opentracing/opentracing-go"
-    "github.com/opentracing/opentracing-go/ext"
-    jaegercfg "github.com/uber/jaeger-client-go/config"
-    jaegerlog "github.com/uber/jaeger-client-go/log"
+    // "github.com/opentracing/opentracing-go"
+    // "github.com/opentracing/opentracing-go/ext"
+    // jaegercfg "github.com/uber/jaeger-client-go/config"
+    // jaegerlog "github.com/uber/jaeger-client-go/log"
     // jaegerprom "github.com/uber/jaeger-lib/metrics/prometheus"
+
+
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/attribute"
+    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+    "go.opentelemetry.io/otel/sdk/resource"
+    "go.opentelemetry.io/otel/sdk/trace"
+    "go.opentelemetry.io/otel/semconv/v1.24.0"
 
 	"gopkg.in/yaml.v2"
     "sn/gen-go/social_network"
@@ -141,23 +149,25 @@ func (p *ThriftClientPool) returnClient(clientWrapper *thriftClientWrapper) {
 }
 
 func (p *ThriftClientPool) ReadHomeTimeline(ctx context.Context, reqID, userID int64, start, stop int32) ([]*social_network.Post, error) {
-    gcspan, ctx := opentracing.StartSpanFromContext(ctx, "GetClient")
-    clientWrapper, err := p.getClient(ctx)
+    tracer := otel.Tracer("frontend-service")
+    gc_ctx, gcspan := tracer.Start(ctx, "ReadHomeTimeline")
+    // gcspan, ctx := opentracing.StartSpanFromContext(ctx, "GetClient")
+    clientWrapper, err := p.getClient(gc_ctx)
     if err != nil {
         return nil, err
     }
-    gcspan.Finish()
+    gcspan.End()
 
-    // Start a new span for the ReadHomeTimeline operation
-    span, ctx := opentracing.StartSpanFromContext(ctx, "ReadHomeTimeline")
-    defer span.Finish()
-
-    // Add tags to the span
-    span.SetTag("reqID", reqID)
-    span.SetTag("userID", userID)
-    span.SetTag("start", start)
-    span.SetTag("stop", stop)
     
+    ctx, span := tracer.Start(ctx, "ReadHomeTimeline")
+    defer span.End()
+
+    span.SetAttributes(
+        attribute.Int64("req_id", reqID),
+        attribute.Int64("user_id", userID),
+        attribute.Int64("start", int64(start)),
+        attribute.Int64("stop", int64(stop)),
+    )
     // Inject the span context into the carrier (request headers)
     carrier := make(map[string]string)
     err = opentracing.GlobalTracer().Inject(span.Context(), opentracing.TextMap, opentracing.TextMapCarrier(carrier))
@@ -177,63 +187,63 @@ func (p *ThriftClientPool) ReadHomeTimeline(ctx context.Context, reqID, userID i
 }
 
 
-type JaegerConfig struct {
-    Disabled  bool `yaml:"disabled"`
-    Reporter  struct {
-        LogSpans           bool   `yaml:"logSpans"`
-        LocalAgentHostPort string `yaml:"localAgentHostPort"`
-        QueueSize          int    `yaml:"queueSize"`
-        BufferFlushInterval int   `yaml:"bufferFlushInterval"`
-    } `yaml:"reporter"`
-    Sampler struct {
-        Type  string  `yaml:"type"`
-        Param float64 `yaml:"param"`
-    } `yaml:"sampler"`
-}
+// type JaegerConfig struct {
+//     Disabled  bool `yaml:"disabled"`
+//     Reporter  struct {
+//         LogSpans           bool   `yaml:"logSpans"`
+//         LocalAgentHostPort string `yaml:"localAgentHostPort"`
+//         QueueSize          int    `yaml:"queueSize"`
+//         BufferFlushInterval int   `yaml:"bufferFlushInterval"`
+//     } `yaml:"reporter"`
+//     Sampler struct {
+//         Type  string  `yaml:"type"`
+//         Param float64 `yaml:"param"`
+//     } `yaml:"sampler"`
+// }
 
-func initJaeger(service string) (opentracing.Tracer, io.Closer, error) {
-    // Read Jaeger config from jaeger-config.yml
-    jaegerConfigFile, err := os.Open("jaeger-config.yml")
-    if err != nil {
-        return nil, nil, fmt.Errorf("could not open Jaeger config file: %w", err)
-    }
-    defer jaegerConfigFile.Close()
+// func initJaeger(service string) (opentracing.Tracer, io.Closer, error) {
+//     // Read Jaeger config from jaeger-config.yml
+//     jaegerConfigFile, err := os.Open("jaeger-config.yml")
+//     if err != nil {
+//         return nil, nil, fmt.Errorf("could not open Jaeger config file: %w", err)
+//     }
+//     defer jaegerConfigFile.Close()
 
-    var cfg JaegerConfig
-    decoder := yaml.NewDecoder(jaegerConfigFile)
-    if err := decoder.Decode(&cfg); err != nil {
-        return nil, nil, fmt.Errorf("could not decode Jaeger config file: %w", err)
-    }
+//     var cfg JaegerConfig
+//     decoder := yaml.NewDecoder(jaegerConfigFile)
+//     if err := decoder.Decode(&cfg); err != nil {
+//         return nil, nil, fmt.Errorf("could not decode Jaeger config file: %w", err)
+//     }
 
-    // Map JaegerConfig to jaegercfg.Configuration
-    jaegerCfg := jaegercfg.Configuration{
-        ServiceName: service,
-        Sampler: &jaegercfg.SamplerConfig{
-            Type:  cfg.Sampler.Type,
-            Param: cfg.Sampler.Param,
-        },
-        Reporter: &jaegercfg.ReporterConfig{
-            LogSpans:           cfg.Reporter.LogSpans,
-            LocalAgentHostPort: cfg.Reporter.LocalAgentHostPort,
-        },
-    }
+//     // Map JaegerConfig to jaegercfg.Configuration
+//     jaegerCfg := jaegercfg.Configuration{
+//         ServiceName: service,
+//         Sampler: &jaegercfg.SamplerConfig{
+//             Type:  cfg.Sampler.Type,
+//             Param: cfg.Sampler.Param,
+//         },
+//         Reporter: &jaegercfg.ReporterConfig{
+//             LogSpans:           cfg.Reporter.LogSpans,
+//             LocalAgentHostPort: cfg.Reporter.LocalAgentHostPort,
+//         },
+//     }
 
-    // Initialize a logger
-    jLogger := jaegerlog.StdLogger
+//     // Initialize a logger
+//     jLogger := jaegerlog.StdLogger
 
-    // Initialize a tracer
-    tracer, closer, err := jaegerCfg.NewTracer(
-        jaegercfg.Logger(jLogger),
-    )
-    if err != nil {
-        return nil, nil, fmt.Errorf("could not initialize jaeger tracer: %w", err)
-    }
+//     // Initialize a tracer
+//     tracer, closer, err := jaegerCfg.NewTracer(
+//         jaegercfg.Logger(jLogger),
+//     )
+//     if err != nil {
+//         return nil, nil, fmt.Errorf("could not initialize jaeger tracer: %w", err)
+//     }
 
-    // Set the global tracer
-    opentracing.SetGlobalTracer(tracer)
+//     // Set the global tracer
+//     opentracing.SetGlobalTracer(tracer)
 
-    return tracer, closer, nil
-}
+//     return tracer, closer, nil
+// }
 
 func parseURL(rawURL string) *url.URL {
 	parsedURL, err := url.Parse(rawURL)
@@ -331,14 +341,14 @@ func (p *ComposePostClientPool) returnClient(clientWrapper *composePostClientWra
 }
 
 func (p *ComposePostClientPool) ComposePost(ctx context.Context, reqID int64, username string, userID int64, text string, mediaIDs []int64, mediaTypes []string, postType int32) error {
-    span, ctx := opentracing.StartSpanFromContext(ctx, "ComposePost")
-    defer span.Finish()
+    ctx, span := tracer.Start(ctx, "Compose")
+    defer span.End()
 
-    // Add tags to the span
-    span.SetTag("reqID", reqID)
-    span.SetTag("userID", userID)
-    span.SetTag("username", username)
-    postTypeEnum := social_network.PostType(postType)
+    span.SetAttributes(
+        attribute.Int64("req_id", reqID),
+        attribute.Int64("user_id", userID),
+        attribute.String("user_name", username),
+    )
     
     // Get client from pool
     clientWrapper, err := p.getClient(ctx)
@@ -349,13 +359,7 @@ func (p *ComposePostClientPool) ComposePost(ctx context.Context, reqID int64, us
 
     // Inject the span context into the carrier
     carrier := make(map[string]string)
-    err = opentracing.GlobalTracer().Inject(
-        span.Context(),
-        opentracing.TextMap,
-        opentracing.TextMapCarrier(carrier))
-    if err != nil {
-        log.Printf("Failed to inject span context: %v", err)
-    }
+    otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(carrier))
 
     err = clientWrapper.client.ComposePost(
         ctx,
@@ -442,13 +446,15 @@ func (p *UserTimelineClientPool) returnClient(clientWrapper *userTimelineClientW
 }
 
 func (p *UserTimelineClientPool) ReadUserTimeline(ctx context.Context, reqID int64, userID int64, start int32, stop int32) ([]*social_network.Post, error) {
-    span, ctx := opentracing.StartSpanFromContext(ctx, "ReadUserTimeline")
-    defer span.Finish()
+    ctx, span := tracer.Start(ctx, "ReadUserTimeline")
+    defer span.End()
 
-    span.SetTag("reqID", reqID)
-    span.SetTag("userID", userID)
-    span.SetTag("start", start)
-    span.SetTag("stop", stop)
+    span.SetAttributes(
+        attribute.Int64("req_id", reqID),
+        attribute.Int64("user_id", userID),
+        attribute.Int64("start", int64(start)),
+        attribute.Int64("stop", int64(stop)),
+    )
 
     clientWrapper, err := p.getClient(ctx)
     if err != nil {
@@ -457,13 +463,7 @@ func (p *UserTimelineClientPool) ReadUserTimeline(ctx context.Context, reqID int
     defer p.returnClient(clientWrapper)
 
     carrier := make(map[string]string)
-    err = opentracing.GlobalTracer().Inject(
-        span.Context(),
-        opentracing.TextMap,
-        opentracing.TextMapCarrier(carrier))
-    if err != nil {
-        log.Printf("Failed to inject span context: %v", err)
-    }
+    otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(carrier))
 
     posts, err := clientWrapper.client.ReadUserTimeline(ctx, reqID, userID, start, stop, carrier)
     if err != nil {
@@ -539,12 +539,22 @@ func (p *UserServiceClientPool) returnClient(clientWrapper *userServiceClientWra
 }
 
 func (p *UserServiceClientPool) RegisterUser(ctx context.Context, reqID int64, firstName string, lastName string, username string, password string, userID int64) error {
-    span, ctx := opentracing.StartSpanFromContext(ctx, "RegisterUser")
-    defer span.Finish()
+    // span, ctx := opentracing.StartSpanFromContext(ctx, "RegisterUser")
+    // defer span.Finish()
 
-    span.SetTag("reqID", reqID)
-    span.SetTag("username", username)
-    span.SetTag("userID", userID)
+    // span.SetTag("reqID", reqID)
+    // span.SetTag("username", username)
+    // span.SetTag("userID", userID)
+
+    ctx, span := tracer.Start(ctx, "RegisterUser")
+    defer span.End()
+
+    span.SetAttributes(
+        attribute.Int64("req_id", reqID),
+        attribute.Int64("user_id", userID),
+        attribute.String("user_name", username),
+    )
+
 
     clientWrapper, err := p.getClient(ctx)
     if err != nil {
@@ -553,13 +563,7 @@ func (p *UserServiceClientPool) RegisterUser(ctx context.Context, reqID int64, f
     defer p.returnClient(clientWrapper)
 
     carrier := make(map[string]string)
-    err = opentracing.GlobalTracer().Inject(
-        span.Context(),
-        opentracing.TextMap,
-        opentracing.TextMapCarrier(carrier))
-    if err != nil {
-        log.Printf("Failed to inject span context: %v", err)
-    }
+    otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(carrier))
 
     err = clientWrapper.client.RegisterUserWithId(
         ctx,
@@ -644,12 +648,22 @@ func (p *SocialGraphClientPool) returnClient(clientWrapper *socialGraphClientWra
 }
 
 func (p *SocialGraphClientPool) Follow(ctx context.Context, reqID int64, userID int64, followeeID int64) error {
-    span, ctx := opentracing.StartSpanFromContext(ctx, "Follow")
-    defer span.Finish()
+    // span, ctx := opentracing.StartSpanFromContext(ctx, "Follow")
+    // defer span.Finish()
 
-    span.SetTag("reqID", reqID)
-    span.SetTag("userID", userID)
-    span.SetTag("followeeID", followeeID)
+    // span.SetTag("reqID", reqID)
+    // span.SetTag("userID", userID)
+    // span.SetTag("followeeID", followeeID)
+
+    tracer := otel.Tracer("frontend-service")
+    ctx, span := tracer.Start(ctx, "Follow")
+    defer span.End()
+
+    span.SetAttributes(
+        attribute.Int64("req_id", reqID),
+        attribute.Int64("user_id", userID),
+        attribute.Int64("followee_id", followeeID),
+    )
 
     clientWrapper, err := p.getClient(ctx)
     if err != nil {
@@ -657,14 +671,17 @@ func (p *SocialGraphClientPool) Follow(ctx context.Context, reqID int64, userID 
     }
     defer p.returnClient(clientWrapper)
 
+    // carrier := make(map[string]string)
+    // err = opentracing.GlobalTracer().Inject(
+    //     span.Context(),
+    //     opentracing.TextMap,
+    //     opentracing.TextMapCarrier(carrier))
+    // if err != nil {
+    //     log.Printf("Failed to inject span context: %v", err)
+    // }
+
     carrier := make(map[string]string)
-    err = opentracing.GlobalTracer().Inject(
-        span.Context(),
-        opentracing.TextMap,
-        opentracing.TextMapCarrier(carrier))
-    if err != nil {
-        log.Printf("Failed to inject span context: %v", err)
-    }
+    otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(carrier))
 
     err = clientWrapper.client.Follow(ctx, reqID, userID, followeeID, carrier)
     if err != nil {
@@ -675,12 +692,15 @@ func (p *SocialGraphClientPool) Follow(ctx context.Context, reqID int64, userID 
 }
 
 func (p *SocialGraphClientPool) FollowWithUsername(ctx context.Context, reqID int64, username string, followeeName string) error {
-    span, ctx := opentracing.StartSpanFromContext(ctx, "FollowWithUsername")
-    defer span.Finish()
+    tracer := otel.Tracer("frontend-service")
+    ctx, span := tracer.Start(ctx, "FollowWithUsername")
+    defer span.End()
 
-    span.SetTag("reqID", reqID)
-    span.SetTag("username", username)
-    span.SetTag("followeeName", followeeName)
+    span.SetAttributes(
+        attribute.Int64("req_id", reqID),
+        attribute.Int64("user_id", userID),
+        attribute.Int64("followee_name", followeeName),
+    )
 
     clientWrapper, err := p.getClient(ctx)
     if err != nil {
@@ -689,13 +709,7 @@ func (p *SocialGraphClientPool) FollowWithUsername(ctx context.Context, reqID in
     defer p.returnClient(clientWrapper)
 
     carrier := make(map[string]string)
-    err = opentracing.GlobalTracer().Inject(
-        span.Context(),
-        opentracing.TextMap,
-        opentracing.TextMapCarrier(carrier))
-    if err != nil {
-        log.Printf("Failed to inject span context: %v", err)
-    }
+    otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(carrier))
 
     err = clientWrapper.client.FollowWithUsername(ctx, reqID, username, followeeName, carrier)
     if err != nil {
@@ -706,12 +720,15 @@ func (p *SocialGraphClientPool) FollowWithUsername(ctx context.Context, reqID in
 }
 
 func (p *SocialGraphClientPool) Unfollow(ctx context.Context, reqID int64, userID int64, followeeID int64) error {
-    span, ctx := opentracing.StartSpanFromContext(ctx, "Unfollow")
-    defer span.Finish()
+    tracer := otel.Tracer("frontend-service")
+    ctx, span := tracer.Start(ctx, "Unfollow")
+    defer span.End()
 
-    span.SetTag("reqID", reqID)
-    span.SetTag("userID", userID)
-    span.SetTag("followeeID", followeeID)
+    span.SetAttributes(
+        attribute.Int64("req_id", reqID),
+        attribute.Int64("user_id", userID),
+        attribute.Int64("followee_id", followeeID),
+    )
 
     clientWrapper, err := p.getClient(ctx)
     if err != nil {
@@ -720,13 +737,7 @@ func (p *SocialGraphClientPool) Unfollow(ctx context.Context, reqID int64, userI
     defer p.returnClient(clientWrapper)
 
     carrier := make(map[string]string)
-    err = opentracing.GlobalTracer().Inject(
-        span.Context(),
-        opentracing.TextMap,
-        opentracing.TextMapCarrier(carrier))
-    if err != nil {
-        log.Printf("Failed to inject span context: %v", err)
-    }
+    otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(carrier))
 
     err = clientWrapper.client.Unfollow(ctx, reqID, userID, followeeID, carrier)
     if err != nil {
@@ -737,12 +748,15 @@ func (p *SocialGraphClientPool) Unfollow(ctx context.Context, reqID int64, userI
 }
 
 func (p *SocialGraphClientPool) UnfollowWithUsername(ctx context.Context, reqID int64, username string, followeeName string) error {
-    span, ctx := opentracing.StartSpanFromContext(ctx, "UnfollowWithUsername")
-    defer span.Finish()
+    tracer := otel.Tracer("frontend-service")
+    ctx, span := tracer.Start(ctx, "UnfollowWithUsername")
+    defer span.End()
 
-    span.SetTag("reqID", reqID)
-    span.SetTag("username", username)
-    span.SetTag("followeeName", followeeName)
+    span.SetAttributes(
+        attribute.Int64("req_id", reqID),
+        attribute.Int64("user_id", userID),
+        attribute.Int64("followee_id", followeeID),
+    )
 
     clientWrapper, err := p.getClient(ctx)
     if err != nil {
@@ -751,13 +765,7 @@ func (p *SocialGraphClientPool) UnfollowWithUsername(ctx context.Context, reqID 
     defer p.returnClient(clientWrapper)
 
     carrier := make(map[string]string)
-    err = opentracing.GlobalTracer().Inject(
-        span.Context(),
-        opentracing.TextMap,
-        opentracing.TextMapCarrier(carrier))
-    if err != nil {
-        log.Printf("Failed to inject span context: %v", err)
-    }
+    otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(carrier))
 
     err = clientWrapper.client.UnfollowWithUsername(ctx, reqID, username, followeeName, carrier)
     if err != nil {
@@ -767,17 +775,65 @@ func (p *SocialGraphClientPool) UnfollowWithUsername(ctx context.Context, reqID 
     return nil
 }
 
+
+func initTracer(serviceName string) (*trace.TracerProvider, error) {
+     ctx := context.Background()
+
+     // Create OTLP exporter
+     exporter, err := otlptracehttp.New(ctx,
+         otlptracehttp.WithEndpoint("http://otel-collector:4318/v1/traces"),
+         otlptracehttp.WithInsecure(),
+     )
+     if err != nil {
+         return nil, fmt.Errorf("creating OTLP exporter: %w", err)
+     }
+
+     // Create resource with service information
+     res, err := resource.New(ctx,
+         resource.WithAttributes(
+             semconv.ServiceName(serviceName),
+             semconv.ServiceVersion("1.0.0"),
+         ),
+     )
+     if err != nil {
+         return nil, fmt.Errorf("creating resource: %w", err)
+     }
+
+     // Create trace provider
+     tp := trace.NewTracerProvider(
+        //  trace.WithBatcher(exporter),
+         trace.WithResource(res),
+     )
+     
+     // Set as global trace provider
+     otel.SetTracerProvider(tp)
+
+     return tp, nil
+}
+
 func main() {
     // Initialize logger before anything else
     initLogger()
     log.Info("Starting frontend service")
 
+
+
     // Initialize Jaeger tracer
-    _, closer, err := initJaeger("frontend-service")
+    // _, closer, err := initJaeger("frontend-service")
+    // if err != nil {
+    //     log.WithError(err).Fatal("Could not initialize Jaeger tracer")
+    // }
+    // defer closer.Close()
+
+    tp, err := initTracer("frontend-service")
     if err != nil {
-        log.WithError(err).Fatal("Could not initialize Jaeger tracer")
+        log.WithError(err).Fatal("Could not initialize OpenTelemetry tracer")
     }
-    defer closer.Close()
+    defer func() {
+        if err := tp.Shutdown(context.Background()); err != nil {
+            log.WithError(err).Error("Error shutting down tracer provider")
+        }
+    }()
 
     file, err := os.Open("service-config.json")
     if err != nil {
@@ -884,10 +940,21 @@ func main() {
     http.HandleFunc("/wrk2-api/home-timeline/read", func(w http.ResponseWriter, r *http.Request) {
         startTime := time.Now()
 
-        spanCtx, _ := opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
-        span := opentracing.GlobalTracer().StartSpan("HTTP /wrk2-api/home-timeline/read", ext.RPCServerOption(spanCtx))
-        defer span.Finish()
-        ctx := opentracing.ContextWithSpan(r.Context(), span)
+        // spanCtx, _ := opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
+        // span := opentracing.GlobalTracer().StartSpan("HTTP /wrk2-api/home-timeline/read", ext.RPCServerOption(spanCtx))
+        // defer span.Finish()
+        // ctx := opentracing.ContextWithSpan(r.Context(), span)
+
+        ctx := r.Context()
+        tracer := otel.Tracer("frontend-service")
+        
+        ctx, span := tracer.Start(ctx, "HTTP /wrk2-api/home-timeline/read")
+        defer span.End()
+    
+        span.SetAttributes(
+            attribute.String("http.method", r.Method),
+            attribute.String("http.url", r.URL.String()),
+        )
 
         // Extract parameters from request
         userIDStr := r.URL.Query().Get("user_id")
@@ -959,10 +1026,21 @@ func main() {
     http.HandleFunc("/wrk2-api/post/compose", func(w http.ResponseWriter, r *http.Request) {
         startTime := time.Now()
 
-        spanCtx, _ := opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
-        span := opentracing.GlobalTracer().StartSpan("HTTP /wrk2-api/post/compose", ext.RPCServerOption(spanCtx))
-        defer span.Finish()
-        ctx := opentracing.ContextWithSpan(r.Context(), span)
+        // spanCtx, _ := opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
+        // span := opentracing.GlobalTracer().StartSpan("HTTP /wrk2-api/post/compose", ext.RPCServerOption(spanCtx))
+        // defer span.Finish()
+        // ctx := opentracing.ContextWithSpan(r.Context(), span)
+
+        ctx := r.Context()
+        tracer := otel.Tracer("frontend-service")
+        
+        ctx, span := tracer.Start(ctx, "HTTP /wrk2-api/post/compose")
+        defer span.End()
+    
+        span.SetAttributes(
+            attribute.String("http.method", r.Method),
+            attribute.String("http.url", r.URL.String()),
+        )
 
         if err := r.ParseForm(); err != nil {
             http.Error(w, "Error parsing form data", http.StatusBadRequest)
@@ -1063,11 +1141,23 @@ func main() {
     http.HandleFunc("/wrk2-api/user-timeline/read", func(w http.ResponseWriter, r *http.Request) {
         startTime := time.Now()
 
-        spanCtx, _ := opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
-        span := opentracing.GlobalTracer().StartSpan("HTTP /wrk2-api/user-timeline/read", ext.RPCServerOption(spanCtx))
-        defer span.Finish()
-        ctx := opentracing.ContextWithSpan(r.Context(), span)
+        // spanCtx, _ := opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
+        // span := opentracing.GlobalTracer().StartSpan("HTTP /wrk2-api/user-timeline/read", ext.RPCServerOption(spanCtx))
+        // defer span.Finish()
+        // ctx := opentracing.ContextWithSpan(r.Context(), span)
 
+
+        ctx := r.Context()
+        tracer := otel.Tracer("frontend-service")
+        
+        ctx, span := tracer.Start(ctx, "HTTP /wrk2-api/user-timeline/read")
+        defer span.End()
+    
+        span.SetAttributes(
+            attribute.String("http.method", r.Method),
+            attribute.String("http.url", r.URL.String()),
+        )
+        
         // Extract parameters from request
         userIDStr := r.URL.Query().Get("user_id")
         startStr := r.URL.Query().Get("start")
@@ -1146,10 +1236,22 @@ func main() {
             return
         }
 
-        spanCtx, _ := opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
-        span := opentracing.GlobalTracer().StartSpan("HTTP /wrk2-api/user/register", ext.RPCServerOption(spanCtx))
-        defer span.Finish()
-        ctx := opentracing.ContextWithSpan(r.Context(), span)
+        // spanCtx, _ := opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
+        // span := opentracing.GlobalTracer().StartSpan("HTTP /wrk2-api/user/register", ext.RPCServerOption(spanCtx))
+        // defer span.Finish()
+        // ctx := opentracing.ContextWithSpan(r.Context(), span)
+
+        ctx := r.Context()
+        tracer := otel.Tracer("frontend-service")
+        
+        ctx, span := tracer.Start(ctx, "HTTP /wrk2-api/user/register")
+        defer span.End()
+    
+        span.SetAttributes(
+            attribute.String("http.method", r.Method),
+            attribute.String("http.url", r.URL.String()),
+        )
+
 
         if err := r.ParseForm(); err != nil {
             http.Error(w, "Error parsing form data", http.StatusBadRequest)
@@ -1220,10 +1322,21 @@ func main() {
             return
         }
 
-        spanCtx, _ := opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
-        span := opentracing.GlobalTracer().StartSpan("HTTP /wrk2-api/user/follow", ext.RPCServerOption(spanCtx))
-        defer span.Finish()
-        ctx := opentracing.ContextWithSpan(r.Context(), span)
+        // spanCtx, _ := opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
+        // span := opentracing.GlobalTracer().StartSpan("HTTP /wrk2-api/user/follow", ext.RPCServerOption(spanCtx))
+        // defer span.Finish()
+        // ctx := opentracing.ContextWithSpan(r.Context(), span)
+
+        ctx := r.Context()
+        tracer := otel.Tracer("frontend-service")
+        
+        ctx, span := tracer.Start(ctx, "HTTP /wrk2-api/user/follow")
+        defer span.End()
+    
+        span.SetAttributes(
+            attribute.String("http.method", r.Method),
+            attribute.String("http.url", r.URL.String()),
+        )
 
         if err := r.ParseForm(); err != nil {
             http.Error(w, "Error parsing form data", http.StatusBadRequest)
@@ -1295,10 +1408,21 @@ func main() {
             return
         }
 
-        spanCtx, _ := opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
-        span := opentracing.GlobalTracer().StartSpan("HTTP /wrk2-api/user/unfollow", ext.RPCServerOption(spanCtx))
-        defer span.Finish()
-        ctx := opentracing.ContextWithSpan(r.Context(), span)
+        // spanCtx, _ := opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, opentracing.HTTPHeadersCarrier(r.Header))
+        // span := opentracing.GlobalTracer().StartSpan("HTTP /wrk2-api/user/unfollow", ext.RPCServerOption(spanCtx))
+        // defer span.Finish()
+        // ctx := opentracing.ContextWithSpan(r.Context(), span)
+
+        ctx := r.Context()
+        tracer := otel.Tracer("frontend-service")
+        
+        ctx, span := tracer.Start(ctx, "HTTP /wrk2-api/user/unfollow")
+        defer span.End()
+    
+        span.SetAttributes(
+            attribute.String("http.method", r.Method),
+            attribute.String("http.url", r.URL.String()),
+        )
 
         if err := r.ParseForm(); err != nil {
             http.Error(w, "Error parsing form data", http.StatusBadRequest)
