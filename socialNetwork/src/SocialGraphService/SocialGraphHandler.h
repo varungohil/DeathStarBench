@@ -392,7 +392,7 @@ void SocialGraphHandler::Unfollow(
         StartSpanOptions opts;
         opts.parent = span->GetContext();
         auto update_span = tracer->StartSpan(
-            "social_graph_mongo_delete_client"
+            "social_graph_mongo_delete_client",
             opts
             );
         bool updated = mongoc_collection_find_and_modify(
