@@ -112,7 +112,7 @@ void UserTimelineHandler::WriteUserTimeline(
   options.parent   = GetSpan(new_context)->GetContext();
 
   auto tracer = get_tracer("user-timeline-service");
-  auto span = tracer->StartSpan("rwrite_user_timeline_server", options);
+  auto span = tracer->StartSpan("write_user_timeline_server", options);
   auto scope = tracer->WithActiveSpan(span);
 
   std::map<std::string, std::string> writer_text_map;

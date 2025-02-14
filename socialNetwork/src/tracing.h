@@ -86,9 +86,9 @@ inline void SetUpTracer(
 
   // Configure OTLP exporter from YAML
   opentelemetry::exporter::otlp::OtlpHttpExporterOptions opts;
-  if(configYAML["otlp"]) {
-    opts.url = configYAML["otlp"]["endpoint"].as<std::string>("http://localhost:4318/v1/traces");
-  }
+  // if(configYAML["otlp"]) {
+  opts.url = configYAML["otlp"]["endpoint"].as<std::string>("http://otel-collector:4318/v1/traces");
+  // }
 
   // Create OTLP exporter
   // opentelemetry::exporter::otlp::OtlpHttpExporterOptions opts;
