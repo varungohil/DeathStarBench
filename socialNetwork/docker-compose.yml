@@ -336,9 +336,6 @@ services:
       jaeger-agent:
         condition: service_started
     environment:
-      - ENVOY_PORT
-      - HOST_FILESYSTEM
-      - OTEL_COLLECTOR_HOST
       - OTEL_COLLECTOR_PORT_GRPC=4317
       - OTEL_COLLECTOR_PORT_HTTP=4318
 

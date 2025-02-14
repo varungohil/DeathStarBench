@@ -79,7 +79,8 @@ inline void SetUpTracer(
 
   // Create resource with service name from parameter and config
   resource::ResourceAttributes resource_attributes = {
-    {"service.name", service}
+      {"service.name", service},
+      {"service.namespace", "social_network"}
   };
 
   auto resource = resource::Resource::Create(resource_attributes);
@@ -102,13 +103,16 @@ inline void SetUpTracer(
   auto processor =
       opentelemetry::sdk::trace::SimpleSpanProcessorFactory::Create(std::move(exporter));
 
+  opentelemetry::sdk::trace::TracerProviderOptions tp_opts;
+  tp_opts.resource = resource;
+
   std::vector<std::unique_ptr<opentelemetry::sdk::trace::SpanProcessor>> processors;
   processors.push_back(std::move(processor));
   // Default is an always-on sampler.
   std::unique_ptr<opentelemetry::sdk::trace::TracerContext> context =
       opentelemetry::sdk::trace::TracerContextFactory::Create(std::move(processors));
   std::shared_ptr<opentelemetry::trace::TracerProvider> provider =
-      opentelemetry::sdk::trace::TracerProviderFactory::Create(std::move(context));
+      opentelemetry::sdk::trace::TracerProviderFactory::Create(std::move(context), tp_opts);
   // Set the global trace provider
   opentelemetry::trace::Provider::SetTracerProvider(provider);
 
