@@ -963,7 +963,7 @@ void SocialGraphHandler::FollowWithUsername(
     }
     auto user_client = user_client_wrapper->GetClient();
     int64_t _return;
-    user_id_span->StartSpan("get_user_id_call",
+    auto user_id_span->StartSpan("get_user_id_call",
         opentelemetry::trace::StartSpanOptions{},
         span->GetContext());
     try {
@@ -989,7 +989,7 @@ void SocialGraphHandler::FollowWithUsername(
         }
         auto user_client = user_client_wrapper->GetClient();
         int64_t _return;
-        user_id_span->StartSpan("get_followee_id_call",
+        auto user_id_span->StartSpan("get_followee_id_call",
             opentelemetry::trace::StartSpanOptions{},
             span->GetContext());
         try {
@@ -1061,7 +1061,7 @@ void SocialGraphHandler::UnfollowWithUsername(
     }
     auto user_client = user_client_wrapper->GetClient();
     int64_t _return;
-    user_id_span->StartSpan("get_user_id_call",
+    auto user_id_span->StartSpan("get_user_id_call",
         opentelemetry::trace::StartSpanOptions{},
         span->GetContext());
     try {
@@ -1087,7 +1087,7 @@ void SocialGraphHandler::UnfollowWithUsername(
         }
         auto user_client = user_client_wrapper->GetClient();
         int64_t _return;
-        user_id_span->StartSpan("get_followee_id_call",
+        auto user_id_span->StartSpan("get_followee_id_call",
             opentelemetry::trace::StartSpanOptions{},
             span->GetContext());
         try {
