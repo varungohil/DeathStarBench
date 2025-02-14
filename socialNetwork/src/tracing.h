@@ -110,7 +110,7 @@ inline void SetUpTracer(
   processors.push_back(std::move(processor));
   // Default is an always-on sampler.
   std::unique_ptr<opentelemetry::sdk::trace::TracerContext> context =
-      opentelemetry::sdk::trace::TracerContextFactory::Create(std::move(processors). resource);
+      opentelemetry::sdk::trace::TracerContextFactory::Create(std::move(processors), resource);
   std::shared_ptr<opentelemetry::trace::TracerProvider> provider =
       opentelemetry::sdk::trace::TracerProviderFactory::Create(std::move(context));
   // Set the global trace provider
