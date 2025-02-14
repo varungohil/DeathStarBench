@@ -976,7 +976,7 @@ void SocialGraphHandler::FollowWithUsername(
 
     StartSpanOptions opts;
     opts.parent = span->GetContext();
-    auto user_id_span = tracer->StartSpan("get_user_id_call", opts)
+    auto user_id_span = tracer->StartSpan("get_user_id_call", opts);
     try {
       _return = user_client->GetUserId(req_id, user_name, writer_text_map);
     } catch (...) {
