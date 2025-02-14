@@ -168,11 +168,11 @@ void SocialGraphHandler::Follow(
                                   BCON_INT64(timestamp), "}", "}");
         bson_error_t error;
         bson_t reply;
-
+        StartSpanOptions opts;
+        opts.parent = span->GetContext();
         auto update_span = tracer->StartSpan(
             "mongo_update_client",
-            opentelemetry::trace::StartSpanOptions{},
-            span->GetContext()
+            opts
         );
         bool updated = mongoc_collection_find_and_modify(
             collection, search_not_exist, nullptr, update, nullptr, false,
@@ -226,11 +226,12 @@ void SocialGraphHandler::Follow(
         bson_t *update = BCON_NEW("$push", "{", "followers", "{", "user_id",
                                   BCON_INT64(user_id), "timestamp",
                                   BCON_INT64(timestamp), "}", "}");
-        bson_error_t error;
+        bson_error_t error;        
+        StartSpanOptions opts;
+        opts.parent = span->GetContext();
         auto update_span = tracer->StartSpan(
             "social_graph_mongo_update_client",
-            opentelemetry::trace::StartSpanOptions{},
-            span->GetContext()
+            opts
             );
         bson_t reply;
         bool updated = mongoc_collection_find_and_modify(
@@ -258,10 +259,12 @@ void SocialGraphHandler::Follow(
       });
 
   std::future<void> redis_update_future = std::async(std::launch::async, [&]() {
+  
+    StartSpanOptions opts;
+    opts.parent = span->GetContext();
     auto redis_span = tracer->StartSpan(
         "social_graph_redis_update_client",
-        opentelemetry::trace::StartSpanOptions{},
-        span->GetContext()
+        opts
         );
 
     {
@@ -385,10 +388,12 @@ void SocialGraphHandler::Unfollow(
                                   BCON_INT64(followee_id), "}", "}");
         bson_t reply;
         bson_error_t error;
+
+        StartSpanOptions opts;
+        opts.parent = span->GetContext();
         auto update_span = tracer->StartSpan(
             "social_graph_mongo_delete_client"
-            opentelemetry::trace::StartSpanOptions{},
-            span->GetContext()
+            opts
             );
         bool updated = mongoc_collection_find_and_modify(
             collection, query, nullptr, update, nullptr, false, false, true,
@@ -441,11 +446,13 @@ void SocialGraphHandler::Unfollow(
                                   BCON_INT64(user_id), "}", "}");
         bson_t reply;
         bson_error_t error;
+
+        StartSpanOptions opts;
+        opts.parent = span->GetContext();
         auto update_span = tracer->StartSpan(
             "social_graph_mongo_delete_client",
-            opentelemetry::trace::StartSpanOptions{},
-            span->GetContext()
-            );
+            opts
+        );
         bool updated = mongoc_collection_find_and_modify(
             collection, query, nullptr, update, nullptr, false, false, true,
             &reply, &error);
@@ -471,10 +478,12 @@ void SocialGraphHandler::Unfollow(
       });
 
   std::future<void> redis_update_future = std::async(std::launch::async, [&]() {
+
+    StartSpanOptions opts;
+    opts.parent = span->GetContext();
     auto redis_span = tracer->StartSpan(
         "social_graph_redis_update_client",
-        opentelemetry::trace::StartSpanOptions{},
-        span->GetContext()
+        opts
         );
     {
       if (_redis_client_pool) {
@@ -899,6 +908,7 @@ void SocialGraphHandler::InsertUser(
   bson_t *new_doc = BCON_NEW("user_id", BCON_INT64(user_id), "followers", "[",
                              "]", "followees", "[", "]");
   bson_error_t error;
+
   auto insert_span = tracer->StartSpan(
       "social_graph_mongo_insert_client"
       );
@@ -963,9 +973,10 @@ void SocialGraphHandler::FollowWithUsername(
     }
     auto user_client = user_client_wrapper->GetClient();
     int64_t _return;
-    auto user_id_span = tracer->StartSpan("get_user_id_call",
-        opentelemetry::trace::StartSpanOptions{},
-        span->GetContext());
+
+    StartSpanOptions opts;
+    opts.parent = span->GetContext();
+    auto user_id_span = tracer->StartSpan("get_user_id_call", opts)
     try {
       _return = user_client->GetUserId(req_id, user_name, writer_text_map);
     } catch (...) {
@@ -989,9 +1000,9 @@ void SocialGraphHandler::FollowWithUsername(
         }
         auto user_client = user_client_wrapper->GetClient();
         int64_t _return;
-        auto user_id_span = tracer->StartSpan("get_followee_id_call",
-            opentelemetry::trace::StartSpanOptions{},
-            span->GetContext());
+        StartSpanOptions options;
+        options.parent = span->GetContext();
+        auto user_id_span = tracer->StartSpan("get_followee_id_call", options);
         try {
           _return =
               user_client->GetUserId(req_id, followee_name, writer_text_map);
@@ -1061,9 +1072,9 @@ void SocialGraphHandler::UnfollowWithUsername(
     }
     auto user_client = user_client_wrapper->GetClient();
     int64_t _return;
-    auto user_id_span = tracer->StartSpan("get_user_id_call",
-        opentelemetry::trace::StartSpanOptions{},
-        span->GetContext());
+    StartSpanOptions opts;
+    opts.parent = span->GetContext();
+    auto user_id_span = tracer->StartSpan("get_user_id_call", opts);
     try {
       _return = user_client->GetUserId(req_id, user_name, writer_text_map);
     } catch (...) {
@@ -1087,9 +1098,9 @@ void SocialGraphHandler::UnfollowWithUsername(
         }
         auto user_client = user_client_wrapper->GetClient();
         int64_t _return;
-        auto user_id_span = tracer->StartSpan("get_followee_id_call",
-            opentelemetry::trace::StartSpanOptions{},
-            span->GetContext());
+        StartSpanOptions opts;
+        opts.parent = span->GetContext();
+        auto user_id_span = tracer->StartSpan("get_followee_id_call", opts);
         try {
           _return =
               user_client->GetUserId(req_id, followee_name, writer_text_map);
