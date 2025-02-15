@@ -9,7 +9,7 @@ import (
     "strconv"
     // "sync"
     "time"
-	"io"
+	// "io"
     // "strings"
 
 
@@ -32,8 +32,9 @@ import (
     "go.opentelemetry.io/otel/sdk/resource"
     "go.opentelemetry.io/otel/sdk/trace"
     "go.opentelemetry.io/otel/semconv/v1.24.0"
+    "go.opentelemetry.io/otel/propagation"
 
-	"gopkg.in/yaml.v2"
+	// "gopkg.in/yaml.v2"
     "sn/gen-go/social_network"
     "github.com/sirupsen/logrus"
 )
@@ -175,8 +176,8 @@ func (p *ThriftClientPool) ReadHomeTimeline(ctx context.Context, reqID, userID i
     result, err := clientWrapper.client.ReadHomeTimeline(ctx, reqID, userID, start, stop, carrier)
 
     // Start a span for the returnClient call
-    rcspan, _ := opentracing.StartSpanFromContext(ctx, "ReturnClient")
-    defer rcspan.Finish()
+    // rcspan, _ := opentracing.StartSpanFromContext(ctx, "ReturnClient")
+    // defer rcspan.Finish()
 
     p.returnClient(clientWrapper)
 
@@ -347,6 +348,8 @@ func (p *ComposePostClientPool) ComposePost(ctx context.Context, reqID int64, us
         attribute.Int64("user_id", userID),
         attribute.String("user_name", username),
     )
+
+    postTypeEnum := social_network.PostType(postType)
     
     // Get client from pool
     clientWrapper, err := p.getClient(ctx)
@@ -697,8 +700,8 @@ func (p *SocialGraphClientPool) FollowWithUsername(ctx context.Context, reqID in
 
     span.SetAttributes(
         attribute.Int64("req_id", reqID),
-        attribute.Int64("user_id", userID),
-        attribute.Int64("followee_name", followeeName),
+        attribute.String("user_name", username),
+        attribute.String("followee_name", followeeName),
     )
 
     clientWrapper, err := p.getClient(ctx)
@@ -753,8 +756,8 @@ func (p *SocialGraphClientPool) UnfollowWithUsername(ctx context.Context, reqID 
 
     span.SetAttributes(
         attribute.Int64("req_id", reqID),
-        attribute.Int64("user_id", userID),
-        attribute.Int64("followee_id", followeeID),
+        attribute.String("user_name", username),
+        attribute.String("followee_name", followeeName),
     )
 
     clientWrapper, err := p.getClient(ctx)
@@ -779,7 +782,7 @@ func initTracer(serviceName string) (*trace.TracerProvider, error) {
      ctx := context.Background()
 
      // Create OTLP exporter
-     exporter, err := otlptracehttp.New(ctx,
+     _, err := otlptracehttp.New(ctx,
          otlptracehttp.WithEndpoint("http://otel-collector:4318/v1/traces"),
          otlptracehttp.WithInsecure(),
      )
@@ -945,8 +948,8 @@ func main() {
             attribute.String("http.method", r.Method),
             attribute.String("http.url", r.URL.String()),
         )
-        log.trace("in otel test")
-        time.sleep(1)
+        log.Trace("in otel test")
+        time.Sleep(1)
         defer span.End()
 
     })
