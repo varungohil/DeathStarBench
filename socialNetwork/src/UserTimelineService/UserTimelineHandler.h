@@ -355,7 +355,7 @@ void UserTimelineHandler::ReadUserTimeline(
         auto post_client = post_client_wrapper->GetClient();
         StartSpanOptions opts;
         opts.parent = span->GetContext();
-        auto post_span->StartSpan("read_posts_client", opts);
+        auto post_span = tracer->StartSpan("read_posts_client", opts);
         try {
           post_client->ReadPosts(_return_posts, req_id, post_ids,
                                  writer_text_map);
