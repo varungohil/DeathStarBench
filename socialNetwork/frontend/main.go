@@ -782,8 +782,8 @@ func initTracer(serviceName string) (*trace.TracerProvider, error) {
      ctx := context.Background()
 
      // Create OTLP exporter
-     _, err := otlptracehttp.New(ctx,
-         otlptracehttp.WithEndpoint("http://otel-collector:4318/v1/traces"),
+     exporter, err := otlptracehttp.New(ctx,
+         otlptracehttp.WithEndpoint("otel-collector:4318"),
          otlptracehttp.WithInsecure(),
      )
      if err != nil {
@@ -803,7 +803,7 @@ func initTracer(serviceName string) (*trace.TracerProvider, error) {
 
      // Create trace provider
      tp := trace.NewTracerProvider(
-        //  trace.WithBatcher(exporter),
+         trace.WithBatcher(exporter),
          trace.WithResource(res),
      )
      
@@ -831,6 +831,9 @@ func main() {
     if err != nil {
         log.WithError(err).Fatal("Could not initialize OpenTelemetry tracer")
     }
+
+    otel.SetTextMapPropagator(propagation.TraceContext{})
+    
     defer func() {
         if err := tp.Shutdown(context.Background()); err != nil {
             log.WithError(err).Error("Error shutting down tracer provider")

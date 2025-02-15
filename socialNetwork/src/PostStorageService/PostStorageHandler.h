@@ -664,7 +664,10 @@ void PostStorageHandler::ReadPosts(
         se.message = "Failed to pop a client from memcached pool";
         throw se;
       }
-      auto set_span = tracer->StartSpan("mmc_set_client"); 
+
+      StartSpanOptions opts;
+      opts.parent = span->GetContext();
+      auto set_span = tracer->StartSpan("mmc_set_client", opts); 
       // opentracing::Tracer::Global()->StartSpan(
           // "mmc_set_client", {opentracing::ChildOf(&span->context())});
       for (auto &it : post_json_map) {

@@ -353,6 +353,9 @@ void UserTimelineHandler::ReadUserTimeline(
         }
         std::vector<Post> _return_posts;
         auto post_client = post_client_wrapper->GetClient();
+        StartSpanOptions opts;
+        opts.parent = span->GetContext();
+        auto post_span->StartSpan("read_posts_client", opts);
         try {
           post_client->ReadPosts(_return_posts, req_id, post_ids,
                                  writer_text_map);
@@ -361,6 +364,7 @@ void UserTimelineHandler::ReadUserTimeline(
           LOG(error) << "Failed to read posts from post-storage-service";
           throw;
         }
+        post_span->End();
         _post_client_pool->Keepalive(post_client_wrapper);
         return _return_posts;
       });

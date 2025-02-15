@@ -92,8 +92,10 @@ void TextHandler::ComposeText(
   }
 
   auto shortened_urls_future = std::async(std::launch::async, [&]() {
+    StartSpanOptions opts;
+    opts.parent = span->GetContext();
     auto url_span = tracer->StartSpan(
-        "compose_urls_client" );
+        "compose_urls_client" , opts);
 
     std::map<std::string, std::string> url_writer_text_map;
     HttpTextMapCarrier<std::map<std::string, std::string>> url_writer(url_writer_text_map);
@@ -126,8 +128,10 @@ void TextHandler::ComposeText(
   });
 
   auto user_mention_future = std::async(std::launch::async, [&]() {
+    StartSpanOptions opts;
+    opts.parent = span->GetContext();
     auto user_mention_span = tracer->StartSpan(
-        "compose_user_mentions_client"
+        "compose_user_mentions_client", opts
         );
 
     std::map<std::string, std::string> user_mention_writer_text_map;

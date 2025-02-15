@@ -135,8 +135,10 @@ void UrlShortenHandler::ComposeUrls(
             throw se;
           }
 
+          StartSpanOptions opts;
+          opts.parent = span->GetContext();
           auto mongo_span = tracer->StartSpan(
-              "url_mongo_insert_client"
+              "url_mongo_insert_client", opts
               );
 
           mongoc_bulk_operation_t *bulk;
