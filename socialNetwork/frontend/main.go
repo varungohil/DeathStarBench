@@ -170,10 +170,7 @@ func (p *ThriftClientPool) ReadHomeTimeline(ctx context.Context, reqID, userID i
     )
     // Inject the span context into the carrier (request headers)
     carrier := make(map[string]string)
-    err = opentracing.GlobalTracer().Inject(span.Context(), opentracing.TextMap, opentracing.TextMapCarrier(carrier))
-    if err != nil {
-        log.Printf("Failed to inject span context: %v", err)
-    }
+    otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(carrier))
     // Execute the operation with the traced context
     result, err := clientWrapper.client.ReadHomeTimeline(ctx, reqID, userID, start, stop, carrier)
 
@@ -341,6 +338,7 @@ func (p *ComposePostClientPool) returnClient(clientWrapper *composePostClientWra
 }
 
 func (p *ComposePostClientPool) ComposePost(ctx context.Context, reqID int64, username string, userID int64, text string, mediaIDs []int64, mediaTypes []string, postType int32) error {
+    tracer := otel.Tracer("frontend-service")
     ctx, span := tracer.Start(ctx, "Compose")
     defer span.End()
 
@@ -446,6 +444,7 @@ func (p *UserTimelineClientPool) returnClient(clientWrapper *userTimelineClientW
 }
 
 func (p *UserTimelineClientPool) ReadUserTimeline(ctx context.Context, reqID int64, userID int64, start int32, stop int32) ([]*social_network.Post, error) {
+    tracer := otel.Tracer("frontend-service")
     ctx, span := tracer.Start(ctx, "ReadUserTimeline")
     defer span.End()
 
@@ -545,7 +544,7 @@ func (p *UserServiceClientPool) RegisterUser(ctx context.Context, reqID int64, f
     // span.SetTag("reqID", reqID)
     // span.SetTag("username", username)
     // span.SetTag("userID", userID)
-
+    tracer := otel.Tracer("frontend-service")
     ctx, span := tracer.Start(ctx, "RegisterUser")
     defer span.End()
 
