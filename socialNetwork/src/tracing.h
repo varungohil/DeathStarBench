@@ -17,7 +17,7 @@
 #include "opentelemetry/sdk/trace/exporter.h"
 #include "opentelemetry/sdk/trace/processor.h"
 #include "opentelemetry/sdk/trace/tracer_provider_factory.h"
-#include "opentelemetry/sdk/trace/simple_processor_factory.h"
+#include "opentelemetry/sdk/trace/batch_span_processor_factory.h"
 #include "opentelemetry/sdk/trace/tracer_context.h"
 #include "opentelemetry/sdk/trace/tracer_context_factory.h"
 #include "opentelemetry/sdk/trace/tracer_provider_factory.h"
@@ -30,6 +30,7 @@ namespace nostd = opentelemetry::nostd;
 namespace trace = opentelemetry::trace;
 namespace context = opentelemetry::context;
 namespace resource = opentelemetry::sdk::resource;
+namespace sdktrace  = opentelemetry::sdk::trace;
 
 template <typename T>
 class HttpTextMapCarrier : public opentelemetry::context::propagation::TextMapCarrier
@@ -88,7 +89,7 @@ inline void SetUpTracer(
   // Configure OTLP exporter from YAML
   opentelemetry::exporter::otlp::OtlpHttpExporterOptions opts;
   // if(configYAML["otlp"]) {
-  opts.url = configYAML["otlp"]["endpoint"].as<std::string>("http://otel-collector:4318/v1/traces");
+  opts.url = "http://otel-collector:4318/v1/traces";
   // }
 
   // Create OTLP exporter
@@ -99,18 +100,25 @@ inline void SetUpTracer(
   auto exporter = std::unique_ptr<opentelemetry::sdk::trace::SpanExporter>(
       new opentelemetry::exporter::otlp::OtlpHttpExporter(opts));
   
-
+  sdktrace::BatchSpanProcessorOptions options{};
   auto processor =
-      opentelemetry::sdk::trace::SimpleSpanProcessorFactory::Create(std::move(exporter));
+      opentelemetry::sdk::trace::BatchSpanProcessorFactory::Create(std::move(exporter), options);
 
   // opentelemetry::sdk::trace::TracerProviderOptions tp_opts;
   // tp_opts.resource = resource;
 
   std::vector<std::unique_ptr<opentelemetry::sdk::trace::SpanProcessor>> processors;
   processors.push_back(std::move(processor));
-  // Default is an always-on sampler.
+  
+
+  double ratio       = 0.1;
+  auto sampler = std::unique_ptr<opentelemetry::sdk::trace::Sampler::TraceIdRatioBasedSampler>
+      (new opentelemetry::sdk::trace::Sampler::TraceIdRatioBasedSampler(ratio));
+
   std::unique_ptr<opentelemetry::sdk::trace::TracerContext> context =
-      opentelemetry::sdk::trace::TracerContextFactory::Create(std::move(processors), resource);
+      opentelemetry::sdk::trace::TracerContextFactory::Create(std::move(processors), resource, std::move(sampler));
+
+  
   std::shared_ptr<opentelemetry::trace::TracerProvider> provider =
       opentelemetry::sdk::trace::TracerProviderFactory::Create(std::move(context));
   // Set the global trace provider
