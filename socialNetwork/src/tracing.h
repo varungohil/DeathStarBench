@@ -23,6 +23,7 @@
 #include "opentelemetry/sdk/trace/tracer_provider_factory.h"
 #include "opentelemetry/trace/propagation/http_trace_context.h"
 #include "opentelemetry/trace/provider.h"
+#include "opentelemetry/sdk/trace/samplers/trace_id_ratio.h"
 
 namespace social_network {
 
@@ -112,8 +113,8 @@ inline void SetUpTracer(
   
 
   double ratio       = 0.1;
-  auto sampler = std::unique_ptr<opentelemetry::sdk::trace::Sampler::TraceIdRatioBasedSampler>
-      (new opentelemetry::sdk::trace::Sampler::TraceIdRatioBasedSampler(ratio));
+  auto sampler = std::unique_ptr<opentelemetry::sdk::trace::TraceIdRatioBasedSampler>
+      (new opentelemetry::sdk::trace::TraceIdRatioBasedSampler(ratio));
 
   std::unique_ptr<opentelemetry::sdk::trace::TracerContext> context =
       opentelemetry::sdk::trace::TracerContextFactory::Create(std::move(processors), resource, std::move(sampler));
