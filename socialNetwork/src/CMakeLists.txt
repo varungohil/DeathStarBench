@@ -7,6 +7,17 @@ find_package(nlohmann_json 3.5.0 REQUIRED)
 find_package(Threads)
 find_package(OpenSSL REQUIRED)
 find_package(amqpcpp REQUIRED)
+find_package(opentelemetry-cpp REQUIRED)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Add to all subdirectories
+set(OTEL_LIBS
+    opentelemetry_trace
+    opentelemetry_exporter_otlp_http
+    opentelemetry_common
+    opentelemetry_resources
+)
 
 set(Boost_USE_STATIC_LIBS ON)
 find_package(Boost 1.54.0 REQUIRED COMPONENTS log log_setup program_options)
@@ -43,7 +54,6 @@ add_subdirectory(TextService)
 add_subdirectory(UniqueIdService)
 add_subdirectory(UserService)
 add_subdirectory(SocialGraphService)
-# add_subdirectory(WriteHomeTimelineService)
 add_subdirectory(PostStorageService)
 add_subdirectory(UserTimelineService)
 add_subdirectory(ComposePostService)
@@ -51,3 +61,4 @@ add_subdirectory(UserMentionService)
 add_subdirectory(UrlShortenService)
 add_subdirectory(MediaService)
 add_subdirectory(HomeTimelineService)
+# add_subdirectory(WriteHomeTimelineService)

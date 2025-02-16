@@ -14,10 +14,16 @@
 #include "../../gen-cpp/social_network_types.h"
 #include "../logger.h"
 #include "../tracing.h"
+#include "opentelemetry/trace/context.h"
+
 
 #define HOSTNAME "http://short-url/"
 
 namespace social_network {
+
+using namespace opentelemetry::trace;
+using namespace opentelemetry::context;
+using namespace opentelemetry::trace::propagation;
 
 class UrlShortenHandler : public UrlShortenServiceIf {
  public:
@@ -72,14 +78,30 @@ void UrlShortenHandler::ComposeUrls(
     const std::map<std::string, std::string> &carrier) {
 
   // Initialize a span
-  TextMapReader reader(carrier);
+  // TextMapReader reader(carrier);
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = tracer->StartSpan(
+  //     "compose_urls_server",
+  //     { opentracing::ChildOf(parent_span->get()) });
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("url-shorten-service");
+  auto span = tracer->StartSpan("compose_urls_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "compose_urls_server",
-      { opentracing::ChildOf(parent_span->get()) });
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   std::vector<Url> target_urls;
   std::future<void> mongo_future;
@@ -113,9 +135,11 @@ void UrlShortenHandler::ComposeUrls(
             throw se;
           }
 
-          auto mongo_span = opentracing::Tracer::Global()->StartSpan(
-              "url_mongo_insert_client",
-              { opentracing::ChildOf(&span->context()) });
+          StartSpanOptions opts;
+          opts.parent = span->GetContext();
+          auto mongo_span = tracer->StartSpan(
+              "url_mongo_insert_client", opts
+              );
 
           mongoc_bulk_operation_t *bulk;
           bson_t *doc;
@@ -147,7 +171,7 @@ void UrlShortenHandler::ComposeUrls(
           mongoc_bulk_operation_destroy(bulk);
           mongoc_collection_destroy(collection);
           mongoc_client_pool_push(_mongodb_client_pool, mongodb_client);
-          mongo_span->Finish();
+          mongo_span->End();
         });
 
   }
@@ -162,7 +186,7 @@ void UrlShortenHandler::ComposeUrls(
   }
 
   _return = target_urls;
-  span->Finish();
+  span->End();
 
 }
 

@@ -7,7 +7,7 @@ add_executable(
 
 target_include_directories(
     MediaService PRIVATE
-    /usr/local/include/jaegertracing
+    /usr/local/include/opentelemetry
 )
 
 target_link_libraries(
@@ -18,7 +18,9 @@ target_link_libraries(
     ${Boost_LIBRARIES}
     Boost::log
     Boost::log_setup
-    jaegertracing
+    # jaegertracing
+    yaml-cpp
+    ${OTEL_LIBS}
 )
 
 install(TARGETS MediaService DESTINATION ./)

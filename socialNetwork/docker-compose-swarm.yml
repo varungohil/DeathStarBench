@@ -1,32 +1,52 @@
 version: "3.8"
 
 services:
-  jaeger-agent:
-    image: jaegertracing/jaeger-agent:latest
-    hostname: jaeger-agent
-    command: ["--reporter.grpc.host-port=jaeger-collector:14250"]
-    # ports:
-    #   - target: 6831
-    #     published: 6831
-    #     protocol: udp
-    #     mode: host
-    #   - target: 5778
-    #     published: 5778
-    #     protocol: tcp
-    #     mode: host
-    #   - target: 14271
-    #     published: 14271
-    #     protocol: tcp
-    #     mode: host
+
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: otel-collector
+    restart: always
     deploy:
-      restart_policy:
-        condition: any
+      mode: global
+    command: [ "--config=/etc/otelcol-collector-config.yml"]
+    volumes:
+      - ./config/otel-collector-config.yml:/etc/otelcol-collector-config.yml
+    # ports:
+      # - 55679:55679 # zpages extension
+    #   - "${OTEL_COLLECTOR_PORT_GRPC}"
+    #   - "${OTEL_COLLECTOR_PORT_HTTP}"
     depends_on:
-      - jaeger-collector
+      -  jaeger
+    environment:
+      - OTEL_COLLECTOR_PORT_GRPC=4317
+      - OTEL_COLLECTOR_PORT_HTTP=4318
+
+  # jaeger:
+  #   image: jaegertracing/jaeger:latest
+  #   hostname: jaeger
+  #   command: ["--reporter.grpc.host-port=jaeger:14250"]
+  #   # ports:
+  #   #   - target: 6831
+  #   #     published: 6831
+  #   #     protocol: udp
+  #   #     mode: host
+  #   #   - target: 5778
+  #   #     published: 5778
+  #   #     protocol: tcp
+  #   #     mode: host
+  #   #   - target: 14271
+  #   #     published: 14271
+  #   #     protocol: tcp
+  #   #     mode: host
+  #   deploy:
+  #     restart_policy:
+  #       condition: any
+  #   depends_on:
+  #     - jaeger
 
   compose-post-service:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     deploy:
       replicas: 1
@@ -34,14 +54,14 @@ services:
         condition: any
     command: ["ComposePostService"]
     hostname: compose-post-service
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
 
   home-timeline-redis:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: home-timeline-redis
     image: redis
@@ -52,7 +72,7 @@ services:
 
   home-timeline-service:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     deploy:
       replicas: 1
@@ -60,14 +80,14 @@ services:
         condition: any
     command: ["HomeTimelineService"]
     hostname: home-timeline-service
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
 
   media-frontend:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     deploy:
       replicas: 1
@@ -83,7 +103,7 @@ services:
 
   media-memcached:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: media-memcached
     image: memcached
@@ -95,7 +115,7 @@ services:
 
   media-mongodb:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: media-mongodb
     image: mongo:4.4.6
@@ -108,7 +128,7 @@ services:
   media-service:
     depends_on:
       - media-mongodb
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     deploy:
       replicas: 1
@@ -116,14 +136,14 @@ services:
         condition: any
     command: ["MediaService"]
     hostname: media-service
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
 
   nginx-web-server:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     deploy:
       replicas: 1
@@ -144,7 +164,7 @@ services:
 
   post-storage-memcached:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: post-storage-memcached
     image: memcached
@@ -156,7 +176,7 @@ services:
 
   post-storage-mongodb:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: post-storage-mongodb
     image: mongo:4.4.6
@@ -169,7 +189,7 @@ services:
   post-storage-service:
     depends_on:
       - post-storage-mongodb
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     deploy:
       replicas: 1
@@ -177,14 +197,14 @@ services:
         condition: any
     command: ["PostStorageService"]
     hostname: post-storage-service
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
 
   social-graph-mongodb:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: social-graph-mongodb
     image: mongo:4.4.6
@@ -196,7 +216,7 @@ services:
 
   social-graph-redis:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: social-graph-redis
     image: redis
@@ -207,7 +227,7 @@ services:
 
   social-graph-service:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
       - social-graph-mongodb
     deploy:
@@ -216,14 +236,14 @@ services:
         condition: any
     command: ["SocialGraphService"]
     hostname: social-graph-service
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
 
   text-service:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     deploy:
       replicas: 1
@@ -231,14 +251,14 @@ services:
         condition: any
     command: ["TextService"]
     hostname: text-service
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
 
   unique-id-service:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     deploy:
       replicas: 1
@@ -246,14 +266,14 @@ services:
         condition: any
     command: ["UniqueIdService"]
     hostname: unique-id-service
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
 
   url-shorten-memcached:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: url-shorten-memcached
     image: memcached
@@ -265,7 +285,7 @@ services:
 
   url-shorten-mongodb:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: url-shorten-mongodb
     image: mongo:4.4.6
@@ -278,7 +298,7 @@ services:
   url-shorten-service:
     depends_on:
       - url-shorten-mongodb
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     deploy:
       replicas: 1
@@ -286,14 +306,14 @@ services:
         condition: any
     command: ["UrlShortenService"]
     hostname: url-shorten-service
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
 
   user-memcached:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: user-memcached
     image: memcached
@@ -305,7 +325,7 @@ services:
 
   user-mention-service:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     deploy:
       replicas: 1
@@ -313,14 +333,14 @@ services:
         condition: any
     command: ["UserMentionService"]
     hostname: user-mention-service
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
 
   user-mongodb:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: user-mongodb
     image: mongo:4.4.6
@@ -333,7 +353,7 @@ services:
   user-service:
     depends_on:
       - user-mongodb
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     deploy:
       replicas: 1
@@ -341,14 +361,14 @@ services:
         condition: any
     command: ["UserService"]
     hostname: user-service
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
 
   user-timeline-mongodb:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: user-timeline-mongodb
     image: mongo:4.4.6
@@ -360,7 +380,7 @@ services:
 
   user-timeline-redis:
     depends_on:
-      - jaeger-agent
+      - jaeger
       - jaeger-query
     hostname: user-timeline-redis
     image: redis
@@ -372,18 +392,18 @@ services:
   user-timeline-service:
     depends_on:
       - user-timeline-mongodb
-      - jaeger-agent
+      - jaeger
     deploy:
       replicas: 1
       restart_policy:
         condition: any
     command: ["UserTimelineService"]
     hostname: user-timeline-service
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     volumes:
       - ./config:/social-network-microservices/config
 
-  jaeger-collector:
+  jaeger:
     image: jaegertracing/jaeger-collector
     command:
       [
@@ -424,6 +444,31 @@ services:
   cassandra:
     image: cassandra:3.9
     deploy:
+
+
+
+  frontend:
+    image: varungohil/social-network-frontend-go-otel:latest
+    hostname: frontend
+    ports:
+      - 12345:12345
+    depends_on:
+      - jaeger
+      - otel-collector
+      - home-timeline-service
+      - post-storage-service
+      - user-timeline-service
+      - user-service
+      - compose-post-service
+    restart: always
+    environment:
+      - FRONTEND_PORT=12345
+      - FRONTEND_ADDR=localhost
+      - LOG_LEVEL=info
+    volumes:
+      - ./config/service-config.json:/service-config.json
+      - ./config/jaeger-config.yml:/jaeger-config.yml
+
 
 networks:
   default:

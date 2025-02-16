@@ -12,6 +12,7 @@
 #include "../../gen-cpp/social_network_types.h"
 #include "../logger.h"
 #include "../tracing.h"
+#include "opentelemetry/trace/context.h"
 
 // Custom Epoch (January 1, 2018 Midnight GMT = 2018-01-01T00:00:00Z)
 #define CUSTOM_EPOCH 1514764800000
@@ -21,6 +22,9 @@ namespace social_network {
 using std::chrono::duration_cast;
 using std::chrono::milliseconds;
 using std::chrono::system_clock;
+using namespace opentelemetry::trace;
+using namespace opentelemetry::context;
+using namespace opentelemetry::trace::propagation;
 
 static int64_t current_timestamp = -1;
 static int counter = 0;
@@ -62,13 +66,29 @@ int64_t UniqueIdHandler::ComposeUniqueId(
     int64_t req_id, PostType::type post_type,
     const std::map<std::string, std::string> &carrier) {
   // Initialize a span
-  TextMapReader reader(carrier);
+  // TextMapReader reader(carrier);
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = opentracing::Tracer::Global()->StartSpan(
+  //     "compose_unique_id_server", {opentracing::ChildOf(parent_span->get())});
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("unique-id-service");
+  auto span = tracer->StartSpan("compose_unique_id_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "compose_unique_id_server", {opentracing::ChildOf(parent_span->get())});
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   _thread_lock->lock();
   int64_t timestamp =
@@ -104,7 +124,7 @@ int64_t UniqueIdHandler::ComposeUniqueId(
   int64_t post_id = stoul(post_id_str, nullptr, 16) & 0x7FFFFFFFFFFFFFFF;
   LOG(debug) << "The post_id of the request " << req_id << " is " << post_id;
 
-  span->Finish();
+  span->End();
   return post_id;
 }
 

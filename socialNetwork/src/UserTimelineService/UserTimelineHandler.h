@@ -15,10 +15,15 @@
 #include "../ThriftClient.h"
 #include "../logger.h"
 #include "../tracing.h"
+#include "opentelemetry/trace/context.h"
 
 using namespace sw::redis;
 
 namespace social_network {
+
+using namespace opentelemetry::trace;
+using namespace opentelemetry::context;
+using namespace opentelemetry::trace::propagation;
 
 class UserTimelineHandler : public UserTimelineServiceIf {
  public:
@@ -91,13 +96,29 @@ void UserTimelineHandler::WriteUserTimeline(
     int64_t req_id, int64_t post_id, int64_t user_id, int64_t timestamp,
     const std::map<std::string, std::string> &carrier) {
   // Initialize a span
-  TextMapReader reader(carrier);
+  // TextMapReader reader(carrier);
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = tracer->StartSpan(
+  //     "write_user_timeline_server", {opentracing::ChildOf(parent_span->get())});
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("user-timeline-service");
+  auto span = tracer->StartSpan("write_user_timeline_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "write_user_timeline_server", {opentracing::ChildOf(parent_span->get())});
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   mongoc_client_t *mongodb_client =
       mongoc_client_pool_pop(_mongodb_client_pool);
@@ -125,13 +146,13 @@ void UserTimelineHandler::WriteUserTimeline(
                "]", "$position", BCON_INT32(0), "}", "}");
   bson_error_t error;
   bson_t reply;
-  auto update_span = opentracing::Tracer::Global()->StartSpan(
-      "write_user_timeline_mongo_insert_client",
-      {opentracing::ChildOf(&span->context())});
+  auto update_span = tracer->StartSpan(
+      "write_user_timeline_mongo_insert_client"
+      );
   bool updated = mongoc_collection_find_and_modify(collection, query, nullptr,
                                                    update, nullptr, false, true,
                                                    true, &reply, &error);
-  update_span->Finish();
+  update_span->End();
 
   if (!updated) {
     // update the newly inserted document (upsert: false)
@@ -160,48 +181,69 @@ void UserTimelineHandler::WriteUserTimeline(
   mongoc_client_pool_push(_mongodb_client_pool, mongodb_client);
 
   // Update user's timeline in redis
-  auto redis_span = opentracing::Tracer::Global()->StartSpan(
-      "write_user_timeline_redis_update_client",
-      {opentracing::ChildOf(&span->context())});
+  auto redis_span = tracer->StartSpan(
+      "write_user_timeline_redis_update_client"
+      );
   try {
-    if (_redis_client_pool)
-      _redis_client_pool->zadd(std::to_string(user_id), std::to_string(post_id),
-                              timestamp, UpdateType::NOT_EXIST);
-    else if (IsRedisReplicationEnabled()) {
-        _redis_primary_pool->zadd(std::to_string(user_id), std::to_string(post_id),
-                              timestamp, UpdateType::NOT_EXIST);
+    if (_redis_client_pool) {
+      auto pipe = _redis_client_pool->pipeline(false);
+      pipe.zadd(std::to_string(user_id), std::to_string(post_id),
+                              timestamp, UpdateType::NOT_EXIST);  
+      auto replies = pipe.exec();    
     }
-    else
-      _redis_cluster_client_pool->zadd(std::to_string(user_id), std::to_string(post_id),
+    else if (IsRedisReplicationEnabled()) {
+      auto pipe = _redis_primary_pool->pipeline(false);
+      pipe.zadd(std::to_string(user_id), std::to_string(post_id),
                               timestamp, UpdateType::NOT_EXIST);
+      auto replies = pipe.exec();
+    }
+    // else
+    //   _redis_cluster_client_pool->zadd(std::to_string(user_id), std::to_string(post_id),
+    //                           timestamp, UpdateType::NOT_EXIST);
 
   } catch (const Error &err) {
     LOG(error) << err.what();
     throw err;
   }
-  redis_span->Finish();
-  span->Finish();
+  redis_span->End();
+  span->End();
 }
 
 void UserTimelineHandler::ReadUserTimeline(
     std::vector<Post> &_return, int64_t req_id, int64_t user_id, int start,
     int stop, const std::map<std::string, std::string> &carrier) {
   // Initialize a span
-  TextMapReader reader(carrier);
+  // TextMapReader reader(carrier);
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = tracer->StartSpan(
+  //     "read_user_timeline_server", {opentracing::ChildOf(parent_span->get())});
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("user-timeline-service");
+  auto span = tracer->StartSpan("read_user_timeline_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "read_user_timeline_server", {opentracing::ChildOf(parent_span->get())});
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   if (stop <= start || start < 0) {
     return;
   }
 
-  auto redis_span = opentracing::Tracer::Global()->StartSpan(
-      "read_user_timeline_redis_find_client",
-      {opentracing::ChildOf(&span->context())});
+  auto redis_span = tracer->StartSpan(
+      "read_user_timeline_redis_find_client"
+      );
 
   std::vector<std::string> post_ids_str;
   try {
@@ -212,14 +254,14 @@ void UserTimelineHandler::ReadUserTimeline(
         _redis_replica_pool->zrevrange(std::to_string(user_id), start, stop - 1,
             std::back_inserter(post_ids_str));
     }
-    else
-      _redis_cluster_client_pool->zrevrange(std::to_string(user_id), start, stop - 1,
-                                  std::back_inserter(post_ids_str));
+    // else
+    //   _redis_cluster_client_pool->zrevrange(std::to_string(user_id), start, stop - 1,
+                                  // std::back_inserter(post_ids_str));
   } catch (const Error &err) {
     LOG(error) << err.what();
     throw err;
   }
-  redis_span->Finish();
+  redis_span->End();
 
   std::vector<int64_t> post_ids;
   for (auto &post_id_str : post_ids_str) {
@@ -252,12 +294,12 @@ void UserTimelineHandler::ReadUserTimeline(
     bson_t *opts = BCON_NEW("projection", "{", "posts", "{", "$slice", "[",
                             BCON_INT32(0), BCON_INT32(stop), "]", "}", "}");
 
-    auto find_span = opentracing::Tracer::Global()->StartSpan(
-        "user_timeline_mongo_find_client",
-        {opentracing::ChildOf(&span->context())});
+    auto find_span = tracer->StartSpan(
+        "user_timeline_mongo_find_client"
+        );
     mongoc_cursor_t *cursor =
         mongoc_collection_find_with_opts(collection, query, opts, nullptr);
-    find_span->Finish();
+    find_span->End();
     const bson_t *doc;
     bool found = mongoc_cursor_next(cursor, &doc);
     if (found) {
@@ -311,6 +353,9 @@ void UserTimelineHandler::ReadUserTimeline(
         }
         std::vector<Post> _return_posts;
         auto post_client = post_client_wrapper->GetClient();
+        StartSpanOptions opts;
+        opts.parent = span->GetContext();
+        auto post_span = tracer->StartSpan("read_posts_client", opts);
         try {
           post_client->ReadPosts(_return_posts, req_id, post_ids,
                                  writer_text_map);
@@ -319,14 +364,15 @@ void UserTimelineHandler::ReadUserTimeline(
           LOG(error) << "Failed to read posts from post-storage-service";
           throw;
         }
+        post_span->End();
         _post_client_pool->Keepalive(post_client_wrapper);
         return _return_posts;
       });
 
   if (redis_update_map.size() > 0) {
-    auto redis_update_span = opentracing::Tracer::Global()->StartSpan(
-        "user_timeline_redis_update_client",
-        {opentracing::ChildOf(&span->context())});
+    auto redis_update_span = tracer->StartSpan(
+        "user_timeline_redis_update_client"
+        );
     try {
       if (_redis_client_pool)
         _redis_client_pool->zadd(std::to_string(user_id),
@@ -337,16 +383,16 @@ void UserTimelineHandler::ReadUserTimeline(
               redis_update_map.begin(),
               redis_update_map.end());
       }
-      else
-        _redis_cluster_client_pool->zadd(std::to_string(user_id),
-                               redis_update_map.begin(),
-                               redis_update_map.end());
+      // else
+      //   _redis_cluster_client_pool->zadd(std::to_string(user_id),
+      //                          redis_update_map.begin(),
+      //                          redis_update_map.end());
 
     } catch (const Error &err) {
       LOG(error) << err.what();
       throw err;
     }
-    redis_update_span->Finish();
+    redis_update_span->End();
   }
 
   try {
@@ -355,7 +401,7 @@ void UserTimelineHandler::ReadUserTimeline(
     LOG(error) << "Failed to get post from post-storage-service";
     throw;
   }
-  span->Finish();
+  span->End();
 }
 
 }  // namespace social_network

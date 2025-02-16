@@ -18,6 +18,7 @@
 #include "../ThriftClient.h"
 #include "../logger.h"
 #include "../tracing.h"
+#include "opentelemetry/trace/context.h"
 
 using namespace sw::redis;
 
@@ -26,6 +27,10 @@ namespace social_network {
 using std::chrono::duration_cast;
 using std::chrono::milliseconds;
 using std::chrono::system_clock;
+using namespace opentelemetry::trace;
+using namespace opentelemetry::context;
+using namespace opentelemetry::trace::propagation;
+
 
 class SocialGraphHandler : public SocialGraphServiceIf {
  public:
@@ -104,13 +109,29 @@ void SocialGraphHandler::Follow(
     int64_t req_id, int64_t user_id, int64_t followee_id,
     const std::map<std::string, std::string> &carrier) {
   // Initialize a span
-  TextMapReader reader(carrier);
+  // TextMapReader reader(carrier);
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = tracer->StartSpan(
+  //     "follow_server", {opentracing::ChildOf(parent_span->get())});
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("social-graph-service");
+  auto span = tracer->StartSpan("follow_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "follow_server", {opentracing::ChildOf(parent_span->get())});
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   int64_t timestamp =
       duration_cast<milliseconds>(system_clock::now().time_since_epoch())
@@ -147,8 +168,12 @@ void SocialGraphHandler::Follow(
                                   BCON_INT64(timestamp), "}", "}");
         bson_error_t error;
         bson_t reply;
-        auto update_span = opentracing::Tracer::Global()->StartSpan(
-            "mongo_update_client", {opentracing::ChildOf(&span->context())});
+        StartSpanOptions opts;
+        opts.parent = span->GetContext();
+        auto update_span = tracer->StartSpan(
+            "mongo_update_client",
+            opts
+        );
         bool updated = mongoc_collection_find_and_modify(
             collection, search_not_exist, nullptr, update, nullptr, false,
             false, true, &reply, &error);
@@ -165,7 +190,7 @@ void SocialGraphHandler::Follow(
           mongoc_client_pool_push(_mongodb_client_pool, mongodb_client);
           throw se;
         }
-        update_span->Finish();
+        update_span->End();
         bson_destroy(&reply);
         bson_destroy(update);
         bson_destroy(search_not_exist);
@@ -201,10 +226,13 @@ void SocialGraphHandler::Follow(
         bson_t *update = BCON_NEW("$push", "{", "followers", "{", "user_id",
                                   BCON_INT64(user_id), "timestamp",
                                   BCON_INT64(timestamp), "}", "}");
-        bson_error_t error;
-        auto update_span = opentracing::Tracer::Global()->StartSpan(
+        bson_error_t error;        
+        StartSpanOptions opts;
+        opts.parent = span->GetContext();
+        auto update_span = tracer->StartSpan(
             "social_graph_mongo_update_client",
-            {opentracing::ChildOf(&span->context())});
+            opts
+            );
         bson_t reply;
         bool updated = mongoc_collection_find_and_modify(
             collection, search_not_exist, nullptr, update, nullptr, false,
@@ -222,7 +250,7 @@ void SocialGraphHandler::Follow(
           mongoc_client_pool_push(_mongodb_client_pool, mongodb_client);
           throw se;
         }
-        update_span->Finish();
+        update_span->End();
         bson_destroy(update);
         bson_destroy(&reply);
         bson_destroy(search_not_exist);
@@ -231,9 +259,13 @@ void SocialGraphHandler::Follow(
       });
 
   std::future<void> redis_update_future = std::async(std::launch::async, [&]() {
-    auto redis_span = opentracing::Tracer::Global()->StartSpan(
+  
+    StartSpanOptions opts;
+    opts.parent = span->GetContext();
+    auto redis_span = tracer->StartSpan(
         "social_graph_redis_update_client",
-        {opentracing::ChildOf(&span->context())});
+        opts
+        );
 
     {
       if (_redis_client_pool) {
@@ -263,27 +295,27 @@ void SocialGraphHandler::Follow(
               throw err;
           }
       }
-      else {
-        // TODO: Redis++ currently does not support pipeline with multiple
-        //       hashtags in cluster mode.
-        //       Currently, we send one request for each follower, which may
-        //       incur some performance overhead. We are following the updates
-        //       of Redis++ clients:
-        //       https://github.com/sewenew/redis-plus-plus/issues/212
-        try {
-          _redis_cluster_client_pool->zadd(
-              std::to_string(user_id) + ":followees",
-              std::to_string(followee_id), timestamp, UpdateType::NOT_EXIST);
-          _redis_cluster_client_pool->zadd(
-              std::to_string(followee_id) + ":followers",
-              std::to_string(user_id), timestamp, UpdateType::NOT_EXIST);
-        } catch (const Error &err) {
-          LOG(error) << err.what();
-          throw err;
-        }
-      }
+      // else {
+      //   // TODO: Redis++ currently does not support pipeline with multiple
+      //   //       hashtags in cluster mode.
+      //   //       Currently, we send one request for each follower, which may
+      //   //       incur some performance overhead. We are following the updates
+      //   //       of Redis++ clients:
+      //   //       https://github.com/sewenew/redis-plus-plus/issues/212
+      //   try {
+      //     _redis_cluster_client_pool->zadd(
+      //         std::to_string(user_id) + ":followees",
+      //         std::to_string(followee_id), timestamp, UpdateType::NOT_EXIST);
+      //     _redis_cluster_client_pool->zadd(
+      //         std::to_string(followee_id) + ":followers",
+      //         std::to_string(user_id), timestamp, UpdateType::NOT_EXIST);
+      //   } catch (const Error &err) {
+      //     LOG(error) << err.what();
+      //     throw err;
+      //   }
+      // }
     }
-    redis_span->Finish();
+    redis_span->End();
   });
 
   try {
@@ -297,20 +329,37 @@ void SocialGraphHandler::Follow(
     throw;
   }
 
-  span->Finish();
+  span->End();
 }
 
 void SocialGraphHandler::Unfollow(
     int64_t req_id, int64_t user_id, int64_t followee_id,
     const std::map<std::string, std::string> &carrier) {
   // Initialize a span
-  TextMapReader reader(carrier);
+  // TextMapReader reader(carrier);
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = tracer->StartSpan(
+  //     "unfollow_server", {opentracing::ChildOf(parent_span->get())});
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("social-graph-service");
+  auto span = tracer->StartSpan("unfollow_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "unfollow_server", {opentracing::ChildOf(parent_span->get())});
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   std::future<void> mongo_update_follower_future =
       std::async(std::launch::async, [&]() {
@@ -339,9 +388,13 @@ void SocialGraphHandler::Unfollow(
                                   BCON_INT64(followee_id), "}", "}");
         bson_t reply;
         bson_error_t error;
-        auto update_span = opentracing::Tracer::Global()->StartSpan(
+
+        StartSpanOptions opts;
+        opts.parent = span->GetContext();
+        auto update_span = tracer->StartSpan(
             "social_graph_mongo_delete_client",
-            {opentracing::ChildOf(&span->context())});
+            opts
+            );
         bool updated = mongoc_collection_find_and_modify(
             collection, query, nullptr, update, nullptr, false, false, true,
             &reply, &error);
@@ -358,7 +411,7 @@ void SocialGraphHandler::Unfollow(
           mongoc_client_pool_push(_mongodb_client_pool, mongodb_client);
           throw se;
         }
-        update_span->Finish();
+        update_span->End();
         bson_destroy(update);
         bson_destroy(query);
         bson_destroy(&reply);
@@ -393,9 +446,13 @@ void SocialGraphHandler::Unfollow(
                                   BCON_INT64(user_id), "}", "}");
         bson_t reply;
         bson_error_t error;
-        auto update_span = opentracing::Tracer::Global()->StartSpan(
+
+        StartSpanOptions opts;
+        opts.parent = span->GetContext();
+        auto update_span = tracer->StartSpan(
             "social_graph_mongo_delete_client",
-            {opentracing::ChildOf(&span->context())});
+            opts
+        );
         bool updated = mongoc_collection_find_and_modify(
             collection, query, nullptr, update, nullptr, false, false, true,
             &reply, &error);
@@ -412,7 +469,7 @@ void SocialGraphHandler::Unfollow(
           mongoc_client_pool_push(_mongodb_client_pool, mongodb_client);
           throw se;
         }
-        update_span->Finish();
+        update_span->End();
         bson_destroy(update);
         bson_destroy(query);
         bson_destroy(&reply);
@@ -421,9 +478,13 @@ void SocialGraphHandler::Unfollow(
       });
 
   std::future<void> redis_update_future = std::async(std::launch::async, [&]() {
-    auto redis_span = opentracing::Tracer::Global()->StartSpan(
+
+    StartSpanOptions opts;
+    opts.parent = span->GetContext();
+    auto redis_span = tracer->StartSpan(
         "social_graph_redis_update_client",
-        {opentracing::ChildOf(&span->context())});
+        opts
+        );
     {
       if (_redis_client_pool) {
         auto pipe = _redis_client_pool->pipeline(false);
@@ -454,21 +515,21 @@ void SocialGraphHandler::Unfollow(
               throw err;
           }
       }
-      else {
-        std::string followee_key = std::to_string(user_id) + ":followees";
-        std::string follower_key = std::to_string(followee_id) + ":followers";
-        try {
-          _redis_cluster_client_pool->zrem(followee_key,
-                                           std::to_string(followee_id));
-          _redis_cluster_client_pool->zrem(follower_key,
-                                           std::to_string(user_id));
-        } catch (const Error &err) {
-          LOG(error) << err.what();
-          throw err;
-        }
-      }
+      // else {
+      //   std::string followee_key = std::to_string(user_id) + ":followees";
+      //   std::string follower_key = std::to_string(followee_id) + ":followers";
+      //   try {
+      //     _redis_cluster_client_pool->zrem(followee_key,
+      //                                      std::to_string(followee_id));
+      //     _redis_cluster_client_pool->zrem(follower_key,
+      //                                      std::to_string(user_id));
+      //   } catch (const Error &err) {
+      //     LOG(error) << err.what();
+      //     throw err;
+      //   }
+      // }
     }
-    redis_span->Finish();
+    redis_span->End();
   });
 
   try {
@@ -479,24 +540,40 @@ void SocialGraphHandler::Unfollow(
     throw;
   }
 
-  span->Finish();
+  span->End();
 }
 
 void SocialGraphHandler::GetFollowers(
     std::vector<int64_t> &_return, const int64_t req_id, const int64_t user_id,
     const std::map<std::string, std::string> &carrier) {
   // Initialize a span
-  TextMapReader reader(carrier);
-  std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "get_followers_server", {opentracing::ChildOf(parent_span->get())});
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  // TextMapReader reader(carrier);
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = tracer->StartSpan(
+  //     "get_followers_server", {opentracing::ChildOf(parent_span->get())});
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
 
-  auto redis_span = opentracing::Tracer::Global()->StartSpan(
-      "social_graph_redis_get_client",
-      {opentracing::ChildOf(&span->context())});
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("social-graph-service");
+  auto span = tracer->StartSpan("get_followers_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
+  std::map<std::string, std::string> writer_text_map;
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
+
+  auto redis_span = tracer->StartSpan(
+      "social_graph_redis_get_client"
+      );
 
   std::vector<std::string> followers_str;
   std::string key = std::to_string(user_id) + ":followers";
@@ -507,15 +584,15 @@ void SocialGraphHandler::GetFollowers(
     else if (IsRedisReplicationEnabled()) {
         _redis_replica_client_pool->zrange(key, 0, -1, std::back_inserter(followers_str));
     }
-    else {
-      _redis_cluster_client_pool->zrange(key, 0, -1,
-                                         std::back_inserter(followers_str));
-    }
+    // else {
+    //   _redis_cluster_client_pool->zrange(key, 0, -1,
+    //                                      std::back_inserter(followers_str));
+    // }
   } catch (const Error &err) {
     LOG(error) << err.what();
     throw err;
   }
-  redis_span->Finish();
+  redis_span->End();
 
   // If user_id in the sodical graph Redis server, read from Redis
   if (followers_str.size() > 0) {
@@ -545,9 +622,9 @@ void SocialGraphHandler::GetFollowers(
     }
     bson_t *query = bson_new();
     BSON_APPEND_INT64(query, "user_id", user_id);
-    auto find_span = opentracing::Tracer::Global()->StartSpan(
-        "social_graph_mongo_find_client",
-        {opentracing::ChildOf(&span->context())});
+    auto find_span = tracer->StartSpan(
+        "social_graph_mongo_find_client"
+        );
     mongoc_cursor_t *cursor =
         mongoc_collection_find_with_opts(collection, query, nullptr, nullptr);
     const bson_t *doc;
@@ -581,7 +658,7 @@ void SocialGraphHandler::GetFollowers(
         bson_iter_init(&iter_1, doc);
         index++;
       }
-      find_span->Finish();
+      find_span->End();
       bson_destroy(query);
       mongoc_cursor_destroy(cursor);
       mongoc_collection_destroy(collection);
@@ -589,9 +666,9 @@ void SocialGraphHandler::GetFollowers(
 
       // Update Redis
       std::string key = std::to_string(user_id) + ":followers";
-      auto redis_insert_span = opentracing::Tracer::Global()->StartSpan(
-          "social_graph_redis_insert_client",
-          {opentracing::ChildOf(&span->context())});
+      auto redis_insert_span = tracer->StartSpan(
+          "social_graph_redis_insert_client"
+          );
       try {
         if (_redis_client_pool) {
           _redis_client_pool->zadd(key, redis_zset.begin(), redis_zset.end());
@@ -599,42 +676,59 @@ void SocialGraphHandler::GetFollowers(
         else if (IsRedisReplicationEnabled()) {
             _redis_primary_client_pool->zadd(key, redis_zset.begin(), redis_zset.end());
         }
-        else {
-          _redis_cluster_client_pool->zadd(key, redis_zset.begin(),
-                                           redis_zset.end());
-        }
+        // else {
+        //   _redis_cluster_client_pool->zadd(key, redis_zset.begin(),
+        //                                    redis_zset.end());
+        // }
       } catch (const Error &err) {
         LOG(error) << err.what();
         throw err;
       }
-      redis_span->Finish();
+      redis_span->End();
     } else {
       LOG(warning) << "user_id: " << user_id << " not found";
-      find_span->Finish();
+      find_span->End();
       bson_destroy(query);
       mongoc_cursor_destroy(cursor);
       mongoc_collection_destroy(collection);
       mongoc_client_pool_push(_mongodb_client_pool, mongodb_client);
     }
   }
-  span->Finish();
+  span->End();
 }
 
 void SocialGraphHandler::GetFollowees(
     std::vector<int64_t> &_return, const int64_t req_id, const int64_t user_id,
     const std::map<std::string, std::string> &carrier) {
   // Initialize a span
-  TextMapReader reader(carrier);
-  std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "get_followees_server", {opentracing::ChildOf(parent_span->get())});
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  // TextMapReader reader(carrier);
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = tracer->StartSpan(
+  //     "get_followees_server", {opentracing::ChildOf(parent_span->get())});
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
 
-  auto redis_span = opentracing::Tracer::Global()->StartSpan(
-      "social_graph_redis_get_client",
-      {opentracing::ChildOf(&span->context())});
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("social-graph-service");
+  auto span = tracer->StartSpan("get_followees_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
+  std::map<std::string, std::string> writer_text_map;
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
+
+  auto redis_span = tracer->StartSpan(
+      "social_graph_redis_get_client"
+      );
 
   std::vector<std::string> followees_str;
   std::string key = std::to_string(user_id) + ":followees";
@@ -645,15 +739,15 @@ void SocialGraphHandler::GetFollowees(
     else if (IsRedisReplicationEnabled()) {
         _redis_replica_client_pool->zrange(key, 0, -1, std::back_inserter(followees_str));
     }
-    else {
-      _redis_cluster_client_pool->zrange(key, 0, -1,
-                                         std::back_inserter(followees_str));
-    }
+    // else {
+    //   _redis_cluster_client_pool->zrange(key, 0, -1,
+    //                                      std::back_inserter(followees_str));
+    // }
   } catch (const Error &err) {
     LOG(error) << err.what();
     throw err;
   }
-  redis_span->Finish();
+  redis_span->End();
 
   // If user_id in the sodical graph Redis server, read from Redis
   if (followees_str.size() > 0) {
@@ -664,7 +758,7 @@ void SocialGraphHandler::GetFollowees(
   // If user_id in the sodical graph Redis server, read from MongoDB and
   // update Redis.
   else {
-    redis_span->Finish();
+    // redis_span->End();
     mongoc_client_t *mongodb_client =
         mongoc_client_pool_pop(_mongodb_client_pool);
     if (!mongodb_client) {
@@ -684,9 +778,9 @@ void SocialGraphHandler::GetFollowees(
     }
     bson_t *query = bson_new();
     BSON_APPEND_INT64(query, "user_id", user_id);
-    auto find_span = opentracing::Tracer::Global()->StartSpan(
-        "social_graph_mongo_find_client",
-        {opentracing::ChildOf(&span->context())});
+    auto find_span = tracer->StartSpan(
+        "social_graph_mongo_find_client"
+        );
     mongoc_cursor_t *cursor =
         mongoc_collection_find_with_opts(collection, query, nullptr, nullptr);
     const bson_t *doc;
@@ -733,7 +827,7 @@ void SocialGraphHandler::GetFollowees(
         index++;
       }
 
-      find_span->Finish();
+      find_span->End();
       bson_destroy(query);
       mongoc_cursor_destroy(cursor);
       mongoc_collection_destroy(collection);
@@ -741,9 +835,9 @@ void SocialGraphHandler::GetFollowees(
 
       // Update redis
       std::string key = std::to_string(user_id) + ":followees";
-      auto redis_insert_span = opentracing::Tracer::Global()->StartSpan(
-          "social_graph_redis_insert_client",
-          {opentracing::ChildOf(&span->context())});
+      auto redis_insert_span = tracer->StartSpan(
+          "social_graph_redis_insert_client"
+          );
       try {
         if (_redis_client_pool) {
           _redis_client_pool->zadd(key, redis_zset.begin(), redis_zset.end());
@@ -751,31 +845,47 @@ void SocialGraphHandler::GetFollowees(
         else if (IsRedisReplicationEnabled()) {
             _redis_primary_client_pool->zadd(key, redis_zset.begin(), redis_zset.end());
         }
-        else {
-          _redis_cluster_client_pool->zadd(key, redis_zset.begin(),
-                                           redis_zset.end());
-        }
+        // else {
+        //   _redis_cluster_client_pool->zadd(key, redis_zset.begin(),
+        //                                    redis_zset.end());
+        // }
       } catch (const Error &err) {
         LOG(error) << err.what();
         throw err;
       }
-      redis_span->Finish();
+      redis_insert_span->End();
     }
   }
-  span->Finish();
+  span->End();
 }
 
 void SocialGraphHandler::InsertUser(
     int64_t req_id, int64_t user_id,
     const std::map<std::string, std::string> &carrier) {
   // Initialize a span
-  TextMapReader reader(carrier);
+  // TextMapReader reader(carrier);
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = tracer->StartSpan(
+  //     "insert_user_server", {opentracing::ChildOf(parent_span->get())});
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("social-graph-service");
+  auto span = tracer->StartSpan("insert_user_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "insert_user_server", {opentracing::ChildOf(parent_span->get())});
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   mongoc_client_t *mongodb_client =
       mongoc_client_pool_pop(_mongodb_client_pool);
@@ -798,12 +908,13 @@ void SocialGraphHandler::InsertUser(
   bson_t *new_doc = BCON_NEW("user_id", BCON_INT64(user_id), "followers", "[",
                              "]", "followees", "[", "]");
   bson_error_t error;
-  auto insert_span = opentracing::Tracer::Global()->StartSpan(
-      "social_graph_mongo_insert_client",
-      {opentracing::ChildOf(&span->context())});
+
+  auto insert_span = tracer->StartSpan(
+      "social_graph_mongo_insert_client"
+      );
   bool inserted = mongoc_collection_insert_one(collection, new_doc, nullptr,
                                                nullptr, &error);
-  insert_span->Finish();
+  insert_span->End();
   if (!inserted) {
     LOG(error) << "Failed to insert social graph for user " << user_id
                << " to MongoDB: " << error.message;
@@ -818,7 +929,7 @@ void SocialGraphHandler::InsertUser(
   bson_destroy(new_doc);
   mongoc_collection_destroy(collection);
   mongoc_client_pool_push(_mongodb_client_pool, mongodb_client);
-  span->Finish();
+  span->End();
 }
 
 void SocialGraphHandler::FollowWithUsername(
@@ -826,14 +937,31 @@ void SocialGraphHandler::FollowWithUsername(
     const std::string &followee_name,
     const std::map<std::string, std::string> &carrier) {
   // Initialize a span
-  TextMapReader reader(carrier);
+  // TextMapReader reader(carrier);
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = tracer->StartSpan(
+  //     "follow_with_username_server",
+  //     {opentracing::ChildOf(parent_span->get())});
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("social-graph-service");
+  auto span = tracer->StartSpan("follow_with_username_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "follow_with_username_server",
-      {opentracing::ChildOf(parent_span->get())});
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   std::future<int64_t> user_id_future = std::async(std::launch::async, [&]() {
     auto user_client_wrapper = _user_service_client_pool->Pop();
@@ -845,6 +973,10 @@ void SocialGraphHandler::FollowWithUsername(
     }
     auto user_client = user_client_wrapper->GetClient();
     int64_t _return;
+
+    StartSpanOptions opts;
+    opts.parent = span->GetContext();
+    auto user_id_span = tracer->StartSpan("get_user_id_call", opts);
     try {
       _return = user_client->GetUserId(req_id, user_name, writer_text_map);
     } catch (...) {
@@ -852,6 +984,7 @@ void SocialGraphHandler::FollowWithUsername(
       LOG(error) << "Failed to get user_id from user-service";
       throw;
     }
+    user_id_span->End();
     _user_service_client_pool->Keepalive(user_client_wrapper);
     return _return;
   });
@@ -867,6 +1000,9 @@ void SocialGraphHandler::FollowWithUsername(
         }
         auto user_client = user_client_wrapper->GetClient();
         int64_t _return;
+        StartSpanOptions options;
+        options.parent = span->GetContext();
+        auto user_id_span = tracer->StartSpan("get_followee_id_call", options);
         try {
           _return =
               user_client->GetUserId(req_id, followee_name, writer_text_map);
@@ -875,6 +1011,7 @@ void SocialGraphHandler::FollowWithUsername(
           LOG(error) << "Failed to get user_id from user-service";
           throw;
         }
+        user_id_span->End();
         _user_service_client_pool->Keepalive(user_client_wrapper);
         return _return;
       });
@@ -892,7 +1029,7 @@ void SocialGraphHandler::FollowWithUsername(
   if (user_id >= 0 && followee_id >= 0) {
     Follow(req_id, user_id, followee_id, writer_text_map);
   }
-  span->Finish();
+  span->End();
 }
 
 void SocialGraphHandler::UnfollowWithUsername(
@@ -900,14 +1037,30 @@ void SocialGraphHandler::UnfollowWithUsername(
     const std::string &followee_name,
     const std::map<std::string, std::string> &carrier) {
   // Initialize a span
-  TextMapReader reader(carrier);
+  // TextMapReader reader(carrier);
+  // std::map<std::string, std::string> writer_text_map;
+  // TextMapWriter writer(writer_text_map);
+  // auto parent_span = opentracing::Tracer::Global()->Extract(reader);
+  // auto span = tracer->StartSpan(
+  //     "unfollow_with_username_server",
+  //     {opentracing::ChildOf(parent_span->get())});
+  // opentracing::Tracer::Global()->Inject(span->context(), writer);
+
+  StartSpanOptions options;
+  HttpTextMapCarrier<const std::map<std::string, std::string>> reader(carrier);
+  auto prop        = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+  auto current_ctx = context::RuntimeContext::GetCurrent();
+  auto new_context = prop->Extract(reader, current_ctx);
+  options.parent   = GetSpan(new_context)->GetContext();
+
+  auto tracer = get_tracer("social-graph-service");
+  auto span = tracer->StartSpan("unfollow_with_username_server", options);
+  auto scope = tracer->WithActiveSpan(span);
+
   std::map<std::string, std::string> writer_text_map;
-  TextMapWriter writer(writer_text_map);
-  auto parent_span = opentracing::Tracer::Global()->Extract(reader);
-  auto span = opentracing::Tracer::Global()->StartSpan(
-      "unfollow_with_username_server",
-      {opentracing::ChildOf(parent_span->get())});
-  opentracing::Tracer::Global()->Inject(span->context(), writer);
+  HttpTextMapCarrier<std::map<std::string, std::string>> writer(writer_text_map);
+  auto new_ctx = context::RuntimeContext::GetCurrent();
+  prop->Inject(writer, new_ctx);
 
   std::future<int64_t> user_id_future = std::async(std::launch::async, [&]() {
     auto user_client_wrapper = _user_service_client_pool->Pop();
@@ -919,6 +1072,9 @@ void SocialGraphHandler::UnfollowWithUsername(
     }
     auto user_client = user_client_wrapper->GetClient();
     int64_t _return;
+    StartSpanOptions opts;
+    opts.parent = span->GetContext();
+    auto user_id_span = tracer->StartSpan("get_user_id_call", opts);
     try {
       _return = user_client->GetUserId(req_id, user_name, writer_text_map);
     } catch (...) {
@@ -926,6 +1082,7 @@ void SocialGraphHandler::UnfollowWithUsername(
       LOG(error) << "Failed to get user_id from user-service";
       throw;
     }
+    user_id_span->End();
     _user_service_client_pool->Keepalive(user_client_wrapper);
     return _return;
   });
@@ -941,6 +1098,9 @@ void SocialGraphHandler::UnfollowWithUsername(
         }
         auto user_client = user_client_wrapper->GetClient();
         int64_t _return;
+        StartSpanOptions opts;
+        opts.parent = span->GetContext();
+        auto user_id_span = tracer->StartSpan("get_followee_id_call", opts);
         try {
           _return =
               user_client->GetUserId(req_id, followee_name, writer_text_map);
@@ -949,6 +1109,7 @@ void SocialGraphHandler::UnfollowWithUsername(
           LOG(error) << "Failed to get user_id from user-service";
           throw;
         }
+        user_id_span->End();
         _user_service_client_pool->Keepalive(user_client_wrapper);
         return _return;
       });
@@ -969,7 +1130,7 @@ void SocialGraphHandler::UnfollowWithUsername(
       throw;
     }
   }
-  span->Finish();
+  span->End();
 }
 
 }  // namespace social_network

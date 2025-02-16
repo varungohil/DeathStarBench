@@ -1,12 +1,14 @@
 version: "3.9"
 services:
   social-graph-service:
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     hostname: social-graph-service
     #    ports:
     #      - 10000:9090
     depends_on:
       jaeger-agent:
+        condition: service_started
+      otel-collector:
         condition: service_started
       social-graph-mongodb:
         condition: service_started
@@ -37,7 +39,7 @@ services:
     restart: always
 
   compose-post-service:
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     hostname: compose-post-service
     #    ports:
     #      - 10001:9090
@@ -45,18 +47,22 @@ services:
     depends_on:
       jaeger-agent:
         condition: service_started
+      otel-collector:
+        condition: service_started
     entrypoint: ComposePostService
     volumes:
       - ./config:/social-network-microservices/config
 
   post-storage-service:
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     hostname: post-storage-service
     ports:
       - 10002:9090
     restart: always
     depends_on:
       jaeger-agent:
+        condition: service_started
+      otel-collector:
         condition: service_started
       post-storage-mongodb:
         condition: service_started
@@ -79,13 +85,15 @@ services:
     restart: always
 
   user-timeline-service:
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     hostname: user-timeline-service
     #    ports:
     #      - 10003:9090
     restart: always
     depends_on:
       jaeger-agent:
+        condition: service_started
+      otel-collector:
         condition: service_started
       user-timeline-mongodb:
         condition: service_started
@@ -108,7 +116,7 @@ services:
     restart: always
 
   url-shorten-service:
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     hostname: url-shorten-service
     #    ports:
     #      - 10004:9090
@@ -116,6 +124,8 @@ services:
     entrypoint: UrlShortenService
     depends_on:
       jaeger-agent:
+        condition: service_started
+      otel-collector:
         condition: service_started
       url-shorten-mongodb:
         condition: service_started
@@ -137,13 +147,15 @@ services:
     restart: always
 
   user-service:
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     hostname: user-service
     #    ports:
     #      - 10005:9090
     restart: always
     depends_on:
       jaeger-agent:
+        condition: service_started
+      otel-collector:
         condition: service_started
       user-mongodb:
         condition: service_started
@@ -166,12 +178,14 @@ services:
     restart: always
 
   media-service:
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     hostname: media-service
     #    ports:
     #      - 10006:9090
     depends_on:
       jaeger-agent:
+        condition: service_started
+      otel-collector:
         condition: service_started
       media-mongodb:
         condition: service_started
@@ -195,7 +209,7 @@ services:
     restart: always
 
   text-service:
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     hostname: text-service
     #    ports:
     #      - 10007:9090
@@ -203,12 +217,14 @@ services:
     depends_on:
       jaeger-agent:
         condition: service_started
+      otel-collector:
+        condition: service_started
     entrypoint: TextService
     volumes:
       - ./config:/social-network-microservices/config
 
   unique-id-service:
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     hostname: unique-id-service
     #    ports:
     #      - 10008:9090
@@ -216,17 +232,21 @@ services:
     depends_on:
       jaeger-agent:
         condition: service_started
+      otel-collector:
+        condition: service_started
     entrypoint: UniqueIdService
     volumes:
       - ./config:/social-network-microservices/config
 
   user-mention-service:
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     hostname: user-mention-service
     #    ports:
     #      - 10009:9090
     depends_on:
       jaeger-agent:
+        condition: service_started
+      otel-collector:
         condition: service_started
     restart: always
     entrypoint: UserMentionService
@@ -234,12 +254,14 @@ services:
       - ./config:/social-network-microservices/config
 
   home-timeline-service:
-    image: deathstarbench/social-network-microservices:latest
+    image: varungohil/sn-services-otel:latest
     hostname: home-timeline-service
     #    ports:
     #      - 10010:9090
     depends_on:
       jaeger-agent:
+        condition: service_started
+      otel-collector:
         condition: service_started
     restart: always
     entrypoint: HomeTimelineService
@@ -254,6 +276,8 @@ services:
     depends_on:
       jaeger-agent:
         condition: service_started
+      otel-collector:
+        condition: service_started
     restart: always
     volumes:
       - ./nginx-web-server/lua-scripts:/usr/local/openresty/nginx/lua-scripts
@@ -267,14 +291,54 @@ services:
     image: yg397/media-frontend:xenial
     hostname: media-frontend
     ports:
-      - 8081:8080
+      - 8082:8080
     restart: always
     depends_on:
       jaeger-agent:
         condition: service_started
+      otel-collector:
+        condition: service_started
+
     volumes:
       - ./media-frontend/lua-scripts:/usr/local/openresty/nginx/lua-scripts
       - ./media-frontend/conf/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+
+  # otel-collector:
+  #   image: otel/opentelemetry-collector:latest
+  #   restart: always
+  #   depends_on:
+  #     jaeger-agent:
+  #       condition: service_started
+  #   volumes:
+  #     - ./config/otel-collector-config.yml:/etc/otelcol-collector-config.yml
+  #   ports:
+  #     # - 1888:1888 # pprof extension
+  #     # - 8888:8888 # Prometheus metrics exposed by the Collector
+  #     # - 8889:8889 # Prometheus exporter metrics
+  #     # - 13133:13133 # health_check extension
+  #     # - 4317:4317 # OTLP gRPC receiver
+  #     # - 4318:4318 # OTLP http receiver
+  #     - 55679:55679 # zpages extension
+    
+
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: otel-collector
+    restart: always
+    command: [ "--config=/etc/otelcol-collector-config.yml"]
+    volumes:
+      - ./config/otel-collector-config.yml:/etc/otelcol-collector-config.yml
+    ports:
+      - 55679:55679 # zpages extension
+    #   - "${OTEL_COLLECTOR_PORT_GRPC}"
+    #   - "${OTEL_COLLECTOR_PORT_HTTP}"
+    depends_on:
+      jaeger-agent:
+        condition: service_started
+    environment:
+      - OTEL_COLLECTOR_PORT_GRPC=4317
+      - OTEL_COLLECTOR_PORT_HTTP=4318
+
 
   jaeger-agent:
     image: jaegertracing/all-in-one:latest
@@ -284,19 +348,23 @@ services:
       #      - 6832:6832/udp
       #      - 5778:5778
       - 16686:16686
+      # - 4317:4317
+      # - 4318:4318
       #      - 14268:14268
       #      - 9411:9411
     restart: always
-    environment:
-      - COLLECTOR_ZIPKIN_HTTP_PORT=9411
+    # environment:
+    #   - COLLECTOR_ZIPKIN_HTTP_PORT=9411
 
   frontend:
-    image: varungohil/social-network-frontend-go:latest
+    image: varungohil/social-network-frontend-go-otel:latest
     hostname: frontend
     ports:
-      - 8081:8081
+      - 12345:12345
     depends_on:
       jaeger-agent:
+        condition: service_started
+      otel-collector:
         condition: service_started
       home-timeline-service:
         condition: service_started
@@ -310,9 +378,9 @@ services:
         condition: service_started
     restart: always
     environment:
-      - FRONTEND_PORT=8081
+      - FRONTEND_PORT=12345
       - FRONTEND_ADDR=localhost
-      - LOG_LEVEL=info
+      - LOG_LEVEL=trace
     volumes:
       - ./config/service-config.json:/service-config.json
       - ./config/jaeger-config.yml:/jaeger-config.yml
