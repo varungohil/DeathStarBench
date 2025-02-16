@@ -16,8 +16,7 @@ services:
     #   - "${OTEL_COLLECTOR_PORT_GRPC}"
     #   - "${OTEL_COLLECTOR_PORT_HTTP}"
     depends_on:
-      jaeger:
-        condition: service_started
+      -  jaeger
     environment:
       - OTEL_COLLECTOR_PORT_GRPC=4317
       - OTEL_COLLECTOR_PORT_HTTP=4318
