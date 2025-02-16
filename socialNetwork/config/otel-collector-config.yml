@@ -8,7 +8,7 @@ receivers:
 
 exporters:
   otlp:  # gRPC exporter configuration
-    endpoint: "jaeger-agent:4317"
+    endpoint: "jaeger:4317"
     tls:
       insecure: true  # For non-production environments
   debug:
