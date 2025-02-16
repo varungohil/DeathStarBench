@@ -805,6 +805,7 @@ func initTracer(serviceName string) (*trace.TracerProvider, error) {
      tp := trace.NewTracerProvider(
          trace.WithBatcher(exporter),
          trace.WithResource(res),
+	 trace.WithSampler(trace.TraceIDRatioBased(0.1)),
      )
      
      // Set as global trace provider
