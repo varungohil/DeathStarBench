@@ -101,7 +101,7 @@ int main(int argc, char **argv) {
 
     thread *threads = zcalloc(cfg.num_urls * cfg.threads * sizeof(thread));
     uint64_t connections = cfg.connections / cfg.threads;
-    uint64_t throughput = cfg.rate / cfg.threads;
+    double throughput = (double)cfg.rate / (double)cfg.threads;
     char *time = format_time_s(cfg.duration);
 
     lua_State **L = zmalloc(cfg.num_urls * sizeof(lua_State *));
