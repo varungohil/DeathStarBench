@@ -321,24 +321,88 @@ services:
   #     - 55679:55679 # zpages extension
     
 
+  # Host PMU counters via --collector.perf. Before starting the stack:
+  #   sudo sysctl -w kernel.perf_event_paranoid=0
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: always
+    pid: host
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.perf"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - PERFMON
+    ports:
+      - "9100:9100"
+
   otel-collector:
-    image: otel/opentelemetry-collector:latest
+    image: otel/opentelemetry-collector-contrib:latest
     container_name: otel-collector
     restart: always
-    command: [ "--config=/etc/otelcol-collector-config.yml"]
+    command: ["--config=/etc/otelcol-collector-config.yml"]
     volumes:
       - ./config/otel-collector-config.yml:/etc/otelcol-collector-config.yml
+      - /:/hostfs:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - PERFMON
     ports:
-      - 55679:55679 # zpages extension
-    #   - "${OTEL_COLLECTOR_PORT_GRPC}"
-    #   - "${OTEL_COLLECTOR_PORT_HTTP}"
+      - "8889:8889"   # Prometheus scrape endpoint for OTel metrics
+      - 55679:55679   # zpages extension
     depends_on:
       jaeger-agent:
+        condition: service_started
+      node-exporter:
         condition: service_started
     environment:
       - OTEL_COLLECTOR_PORT_GRPC=4317
       - OTEL_COLLECTOR_PORT_HTTP=4318
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: always
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      otel-collector:
+        condition: service_started
+      node-exporter:
+        condition: service_started
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: always
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
 
   jaeger-agent:
     image: jaegertracing/all-in-one:latest

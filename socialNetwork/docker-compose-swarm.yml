@@ -1,25 +1,106 @@
 version: "3.8"
 
+# service-config.json uses 512 connections per downstream; default container nofile is 1024
+x-sn-ulimits: &sn-ulimits
+  nofile:
+    soft: 65536
+    hard: 65536
+
 services:
 
+  # Host PMU counters via --collector.perf. On each Swarm node, run once before deploy:
+  #   sudo sysctl -w kernel.perf_event_paranoid=0
+  node-exporter:
+    image: prom/node-exporter:latest
+    deploy:
+      mode: global
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.perf"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - PERFMON
+    ports:
+      - target: 9100
+        published: 9100
+        protocol: tcp
+        mode: host
+
   otel-collector:
-    image: otel/opentelemetry-collector:latest
+    image: otel/opentelemetry-collector-contrib:latest
     container_name: otel-collector
     restart: always
     deploy:
       mode: global
-    command: [ "--config=/etc/otelcol-collector-config.yml"]
+    command: ["--config=/etc/otelcol-collector-config.yml"]
     volumes:
       - ./config/otel-collector-config.yml:/etc/otelcol-collector-config.yml
-    # ports:
-      # - 55679:55679 # zpages extension
-    #   - "${OTEL_COLLECTOR_PORT_GRPC}"
-    #   - "${OTEL_COLLECTOR_PORT_HTTP}"
+      - /:/hostfs:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - PERFMON
+    ports:
+      - target: 8889
+        published: 8889
+        protocol: tcp
+        mode: host
     depends_on:
-      -  jaeger
+      - jaeger
+      - node-exporter
     environment:
       - OTEL_COLLECTOR_PORT_GRPC=4317
       - OTEL_COLLECTOR_PORT_HTTP=4318
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./config/prometheus-swarm.yml:/etc/prometheus/prometheus.yml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - target: 9090
+        published: 9090
+        protocol: tcp
+        mode: host
+    deploy:
+      restart_policy:
+        condition: any
+    depends_on:
+      - otel-collector
+      - node-exporter
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - target: 3000
+        published: 3000
+        protocol: tcp
+        mode: host
+    deploy:
+      restart_policy:
+        condition: any
+    depends_on:
+      - prometheus
 
   # jaeger:
   #   image: jaegertracing/jaeger:latest
@@ -55,6 +136,7 @@ services:
     command: ["ComposePostService"]
     hostname: compose-post-service
     image: varungohil/sn-services-otel:latest
+    ulimits: *sn-ulimits
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
@@ -81,6 +163,7 @@ services:
     command: ["HomeTimelineService"]
     hostname: home-timeline-service
     image: varungohil/sn-services-otel:latest
+    ulimits: *sn-ulimits
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
@@ -137,6 +220,7 @@ services:
     command: ["MediaService"]
     hostname: media-service
     image: varungohil/sn-services-otel:latest
+    ulimits: *sn-ulimits
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
@@ -151,6 +235,7 @@ services:
         condition: any
     hostname: nginx-web-server
     image: yg397/openresty-thrift:xenial
+    ulimits: *sn-ulimits
     ports:
       - 8080:8080
     volumes:
@@ -198,6 +283,7 @@ services:
     command: ["PostStorageService"]
     hostname: post-storage-service
     image: varungohil/sn-services-otel:latest
+    ulimits: *sn-ulimits
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
@@ -237,6 +323,7 @@ services:
     command: ["SocialGraphService"]
     hostname: social-graph-service
     image: varungohil/sn-services-otel:latest
+    ulimits: *sn-ulimits
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
@@ -252,6 +339,7 @@ services:
     command: ["TextService"]
     hostname: text-service
     image: varungohil/sn-services-otel:latest
+    ulimits: *sn-ulimits
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
@@ -267,6 +355,7 @@ services:
     command: ["UniqueIdService"]
     hostname: unique-id-service
     image: varungohil/sn-services-otel:latest
+    ulimits: *sn-ulimits
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
@@ -307,6 +396,7 @@ services:
     command: ["UrlShortenService"]
     hostname: url-shorten-service
     image: varungohil/sn-services-otel:latest
+    ulimits: *sn-ulimits
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
@@ -334,6 +424,7 @@ services:
     command: ["UserMentionService"]
     hostname: user-mention-service
     image: varungohil/sn-services-otel:latest
+    ulimits: *sn-ulimits
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
@@ -362,6 +453,7 @@ services:
     command: ["UserService"]
     hostname: user-service
     image: varungohil/sn-services-otel:latest
+    ulimits: *sn-ulimits
     volumes:
       - ./config:/social-network-microservices/config
       - ./keys:/keys
@@ -400,6 +492,7 @@ services:
     command: ["UserTimelineService"]
     hostname: user-timeline-service
     image: varungohil/sn-services-otel:latest
+    ulimits: *sn-ulimits
     volumes:
       - ./config:/social-network-microservices/config
 
@@ -449,6 +542,7 @@ services:
 
   frontend:
     image: varungohil/social-network-frontend-go-otel:latest
+    ulimits: *sn-ulimits
     hostname: frontend
     ports:
       - 12345:12345
