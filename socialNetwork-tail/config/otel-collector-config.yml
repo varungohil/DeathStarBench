@@ -1,0 +1,67 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+  hostmetrics:
+    root_path: /hostfs
+    collection_interval: 10s
+    scrapers:
+      cpu: {}
+      memory: {}
+      load: {}
+      network: {}
+      disk: {}
+      process:
+        mute_process_name_error: true
+        mute_process_exe_error: true
+        mute_process_io_error: true
+
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: node-exporter-perf
+          scrape_interval: 10s
+          static_configs:
+            # node-exporter publishes 9100 on the host (see compose files)
+            - targets: ["host.docker.internal:9100"]
+
+processors:
+  batch: {}
+
+exporters:
+  # Edge collectors run per node (Swarm mode: global). They must NOT make the
+  # sampling decision, because each only sees the spans created on its node.
+  # Route every span to the centralized otel-tailsampler, keyed by trace ID so
+  # all spans of a trace land on the same tail-sampling instance.
+  loadbalancing:
+    routing_key: traceID
+    protocol:
+      otlp:
+        tls:
+          insecure: true
+    resolver:
+      # Single tail-sampler replica: the service name is enough. If the
+      # tail-sampler is scaled out, switch to a DNS resolver returning
+      # individual task IPs (e.g. tasks.otel-tailsampler in Swarm).
+      static:
+        hostnames:
+          - otel-tailsampler:4317
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [loadbalancing]
+    metrics:
+      receivers: [hostmetrics, prometheus]
+      processors: [batch]
+      exporters: [debug, prometheus]

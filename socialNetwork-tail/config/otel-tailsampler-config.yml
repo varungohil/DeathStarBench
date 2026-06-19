@@ -1,0 +1,62 @@
+# Centralized tail-sampling collector.
+#
+# Edge collectors (otel-collector, one per node) forward every span here via the
+# loadbalancing exporter, keyed by trace ID, so this instance receives ALL spans
+# of a given trace. The tail_sampling processor buffers each trace until
+# decision_wait elapses, then applies the policies below to the COMPLETE trace.
+#
+# Run exactly ONE instance (or, if scaled, ensure edge collectors route by trace
+# ID to a fixed set of tail samplers). Multiple uncoordinated replicas would each
+# see only a fragment of a trace and make incorrect decisions.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  tail_sampling:
+    # How long to wait (from first span seen) before deciding a trace. Must be
+    # comfortably longer than the slowest expected end-to-end trace latency so
+    # late spans are included.
+    decision_wait: 10s
+    # Max number of traces kept in memory simultaneously.
+    num_traces: 100000
+    expected_new_traces_per_sec: 1000
+    # Policies are OR-ed: a trace is kept if ANY policy samples it.
+    policies:
+      # Always keep traces that contain an error span.
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      # Always keep slow traces (>1s end-to-end).
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: 100
+      # Keep 10% of everything else (matches the previous head-sampling rate).
+      - name: probabilistic
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+  batch: {}
+
+exporters:
+  otlp:
+    endpoint: "jaeger:4317"
+    tls:
+      insecure: true
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      # tail_sampling must run before batch/export.
+      processors: [tail_sampling, batch]
+      exporters: [debug, otlp]

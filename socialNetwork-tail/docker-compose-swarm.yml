@@ -1,0 +1,764 @@
+version: "3.8"
+
+# Swarm placement (19-node cluster). Node hostnames are FQDNs:
+#   node-N.perfdebug.ragger-pg0.apt.emulab.net  (N = 0 .. 18)
+#   node-0:  frontend
+#   node-1:  compose-post-service
+#   node-2:  home-timeline-service, home-timeline-redis
+#   node-3:  user-timeline-service, user-timeline-mongodb, user-timeline-redis
+#   node-4:  post-storage-service, post-storage-mongodb, post-storage-memcached
+#   node-5:  user-service, user-mongodb, user-memcached
+#   node-6:  social-graph-service, social-graph-mongodb, social-graph-redis
+#   node-7:  media-service, media-mongodb, media-memcached
+#   node-8:  url-shorten-service, url-shorten-mongodb, url-shorten-memcached
+#   node-9:  text-service
+#   node-10: unique-id-service
+#   node-11: user-mention-service
+#   node-12: cassandra, cassandra-schema
+#   node-13: jaeger, jaeger-query
+#   node-14: prometheus
+#   node-15: grafana
+#   node-16..18: spare (nginx-web-server and media-frontend are unused)
+# Global on all nodes: node-exporter, otel-collector
+
+# service-config.json uses 512 connections per downstream; default container nofile is 1024
+x-sn-ulimits: &sn-ulimits
+  nofile:
+    soft: 65536
+    hard: 65536
+
+services:
+
+  # Host PMU counters via --collector.perf. On each Swarm node, run once before deploy:
+  #   sudo sysctl -w kernel.perf_event_paranoid=0
+  node-exporter:
+    image: prom/node-exporter:latest
+    deploy:
+      mode: global
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.perf"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - PERFMON
+    ports:
+      - target: 9100
+        published: 9100
+        protocol: tcp
+        mode: host
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    restart: always
+    deploy:
+      mode: global
+    command: ["--config=/etc/otelcol-collector-config.yml"]
+    volumes:
+      - ./config/otel-collector-config.yml:/etc/otelcol-collector-config.yml
+      - /:/hostfs:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - PERFMON
+    ports:
+      - target: 8889
+        published: 8889
+        protocol: tcp
+        mode: host
+    depends_on:
+      - jaeger
+      - node-exporter
+    environment:
+      - OTEL_COLLECTOR_PORT_GRPC=4317
+      - OTEL_COLLECTOR_PORT_HTTP=4318
+
+  # Centralized tail-sampling collector. A SINGLE replica so every span of a
+  # trace (forwarded by the per-node edge collectors, keyed by trace ID) lands
+  # here and the tail_sampling processor sees the complete trace.
+  otel-tailsampler:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-tailsampler
+    restart: always
+    command: ["--config=/etc/otelcol-tailsampler-config.yml"]
+    volumes:
+      - ./config/otel-tailsampler-config.yml:/etc/otelcol-tailsampler-config.yml
+    depends_on:
+      - jaeger
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-13.perfdebug.ragger-pg0.apt.emulab.net
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./config/prometheus-swarm.yml:/etc/prometheus/prometheus.yml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - target: 9090
+        published: 9090
+        protocol: tcp
+        mode: host
+    deploy:
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-14.perfdebug.ragger-pg0.apt.emulab.net
+    depends_on:
+      - otel-collector
+      - node-exporter
+
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   environment:
+  #     - GF_SECURITY_ADMIN_USER=admin
+  #     - GF_SECURITY_ADMIN_PASSWORD=admin
+  #     - GF_USERS_ALLOW_SIGN_UP=false
+  #   volumes:
+  #     - ./config/grafana/provisioning:/etc/grafana/provisioning
+  #   ports:
+  #     - target: 3000
+  #       published: 3000
+  #       protocol: tcp
+  #       mode: host
+  #   deploy:
+  #     restart_policy:
+  #       condition: any
+  #     placement:
+  #       constraints:
+  #         - node.hostname == node-15.perfdebug.ragger-pg0.apt.emulab.net
+  #   depends_on:
+  #     - prometheus
+
+  # jaeger:
+  #   image: jaegertracing/jaeger:latest
+  #   hostname: jaeger
+  #   command: ["--reporter.grpc.host-port=jaeger:14250"]
+  #   # ports:
+  #   #   - target: 6831
+  #   #     published: 6831
+  #   #     protocol: udp
+  #   #     mode: host
+  #   #   - target: 5778
+  #   #     published: 5778
+  #   #     protocol: tcp
+  #   #     mode: host
+  #   #   - target: 14271
+  #   #     published: 14271
+  #   #     protocol: tcp
+  #   #     mode: host
+  #   deploy:
+  #     restart_policy:
+  #       condition: any
+  #   depends_on:
+  #     - jaeger
+
+  compose-post-service:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-1.perfdebug.ragger-pg0.apt.emulab.net
+    command: ["ComposePostService"]
+    hostname: compose-post-service
+    image: varungohil/sn-services-otel:alwayson
+    ulimits: *sn-ulimits
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  home-timeline-redis:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-2.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: home-timeline-redis
+    image: redis
+    command: "redis-server /social-network-microservices/config/redis.conf"
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  home-timeline-service:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-2.perfdebug.ragger-pg0.apt.emulab.net
+    command: ["HomeTimelineService"]
+    hostname: home-timeline-service
+    image: varungohil/sn-services-otel:alwayson
+    ulimits: *sn-ulimits
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  # media-frontend:
+  #   depends_on:
+  #     - jaeger
+  #     - jaeger-query
+  #   deploy:
+  #     replicas: 1
+  #     restart_policy:
+  #       condition: any
+  #   hostname: media-frontend
+  #   image: yg397/media-frontend:xenial
+  #   ports:
+  #     - 8081:8080
+  #   volumes:
+  #     - ./media-frontend/lua-scripts:/usr/local/openresty/nginx/lua-scripts
+  #     - ./media-frontend/conf/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+
+  media-memcached:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-7.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: media-memcached
+    image: memcached
+    command:
+      - "-m 16384"
+      - "-t 8"
+      - "-I 32m"
+      - "-c 4096"
+
+  media-mongodb:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-7.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: media-mongodb
+    image: mongo:4.4.6
+    command: "mongod --nojournal --quiet --config /social-network-microservices/config/mongod.conf"
+    # command: "mongod --serviceExecutor adaptive --listenBacklog 1024 --syncdelay 3600 --wiredTigerCacheSizeGB 2"
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  media-service:
+    depends_on:
+      - media-mongodb
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-7.perfdebug.ragger-pg0.apt.emulab.net
+    command: ["MediaService"]
+    hostname: media-service
+    image: varungohil/sn-services-otel:alwayson
+    ulimits: *sn-ulimits
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  # nginx-web-server:
+  #   depends_on:
+  #     - jaeger
+  #     - jaeger-query
+  #   deploy:
+  #     replicas: 1
+  #     restart_policy:
+  #       condition: any
+  #   hostname: nginx-web-server
+  #   image: yg397/openresty-thrift:xenial
+  #   ulimits: *sn-ulimits
+  #   ports:
+  #     - 8080:8080
+  #   volumes:
+  #     - ./nginx-web-server/lua-scripts:/usr/local/openresty/nginx/lua-scripts
+  #     - ./nginx-web-server/pages:/usr/local/openresty/nginx/pages
+  #     - ./nginx-web-server/conf/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+  #     - ./nginx-web-server/jaeger-config.json:/usr/local/openresty/nginx/jaeger-config.json
+  #     - ./gen-lua:/gen-lua
+  #     - ./docker/openresty-thrift/lua-thrift:/usr/local/openresty/lualib/thrift
+  #     - ./keys:/keys
+
+  post-storage-memcached:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-4.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: post-storage-memcached
+    image: memcached
+    command:
+      - "-m 16384"
+      - "-t 8"
+      - "-I 32m"
+      - "-c 4096"
+
+  post-storage-mongodb:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-4.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: post-storage-mongodb
+    image: mongo:4.4.6
+    command: "mongod --nojournal --quiet --config /social-network-microservices/config/mongod.conf"
+    # command: "mongod --serviceExecutor adaptive --listenBacklog 1024 --syncdelay 3600 --wiredTigerCacheSizeGB 75"
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  post-storage-service:
+    depends_on:
+      - post-storage-mongodb
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-4.perfdebug.ragger-pg0.apt.emulab.net
+    command: ["PostStorageService"]
+    hostname: post-storage-service
+    image: varungohil/sn-services-otel:alwayson
+    ulimits: *sn-ulimits
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  social-graph-mongodb:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-6.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: social-graph-mongodb
+    image: mongo:4.4.6
+    command: "mongod --nojournal --quiet --config /social-network-microservices/config/mongod.conf"
+    # command: "mongod --serviceExecutor adaptive --listenBacklog 1024 --syncdelay 3600 --wiredTigerCacheSizeGB 16"
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  social-graph-redis:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-6.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: social-graph-redis
+    image: redis
+    command: "redis-server /social-network-microservices/config/redis.conf"
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  social-graph-service:
+    depends_on:
+      - jaeger
+      - jaeger-query
+      - social-graph-mongodb
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-6.perfdebug.ragger-pg0.apt.emulab.net
+    command: ["SocialGraphService"]
+    hostname: social-graph-service
+    image: varungohil/sn-services-otel:alwayson
+    ulimits: *sn-ulimits
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  text-service:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-9.perfdebug.ragger-pg0.apt.emulab.net
+    command: ["TextService"]
+    hostname: text-service
+    image: varungohil/sn-services-otel:alwayson
+    ulimits: *sn-ulimits
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  unique-id-service:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-10.perfdebug.ragger-pg0.apt.emulab.net
+    command: ["UniqueIdService"]
+    hostname: unique-id-service
+    image: varungohil/sn-services-otel:alwayson
+    ulimits: *sn-ulimits
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  url-shorten-memcached:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-8.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: url-shorten-memcached
+    image: memcached
+    command:
+      - "-m 16384"
+      - "-t 8"
+      - "-I 32m"
+      - "-c 4096"
+
+  url-shorten-mongodb:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-8.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: url-shorten-mongodb
+    image: mongo:4.4.6
+    command: "mongod --nojournal --quiet --config /social-network-microservices/config/mongod.conf"
+    # command: "mongod --serviceExecutor adaptive --listenBacklog 1024 --syncdelay 3600 --wiredTigerCacheSizeGB 36"
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  url-shorten-service:
+    depends_on:
+      - url-shorten-mongodb
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-8.perfdebug.ragger-pg0.apt.emulab.net
+    command: ["UrlShortenService"]
+    hostname: url-shorten-service
+    image: varungohil/sn-services-otel:alwayson
+    ulimits: *sn-ulimits
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  user-memcached:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-5.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: user-memcached
+    image: memcached
+    command:
+      - "-m 16384"
+      - "-t 8"
+      - "-I 32m"
+      - "-c 4096"
+
+  user-mention-service:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-11.perfdebug.ragger-pg0.apt.emulab.net
+    command: ["UserMentionService"]
+    hostname: user-mention-service
+    image: varungohil/sn-services-otel:alwayson
+    ulimits: *sn-ulimits
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  user-mongodb:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-5.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: user-mongodb
+    image: mongo:4.4.6
+    command: "mongod --nojournal --quiet --config /social-network-microservices/config/mongod.conf"
+    # command: "mongod --serviceExecutor adaptive --listenBacklog 1024 --syncdelay 3600 --wiredTigerCacheSizeGB 8"
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  user-service:
+    depends_on:
+      - user-mongodb
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-5.perfdebug.ragger-pg0.apt.emulab.net
+    command: ["UserService"]
+    hostname: user-service
+    image: varungohil/sn-services-otel:alwayson
+    ulimits: *sn-ulimits
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  user-timeline-mongodb:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-3.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: user-timeline-mongodb
+    image: mongo:4.4.6
+    command: "mongod --nojournal --quiet --config /social-network-microservices/config/mongod.conf"
+    # command: "mongod --serviceExecutor adaptive --listenBacklog 1024 --syncdelay 3600 --wiredTigerCacheSizeGB 75"
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  user-timeline-redis:
+    depends_on:
+      - jaeger
+      - jaeger-query
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-3.perfdebug.ragger-pg0.apt.emulab.net
+    hostname: user-timeline-redis
+    image: redis
+    command: "redis-server /social-network-microservices/config/redis.conf"
+    volumes:
+      - ./config:/social-network-microservices/config
+      - ./keys:/keys
+
+  user-timeline-service:
+    depends_on:
+      - user-timeline-mongodb
+      - jaeger
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-3.perfdebug.ragger-pg0.apt.emulab.net
+    command: ["UserTimelineService"]
+    hostname: user-timeline-service
+    image: varungohil/sn-services-otel:alwayson
+    ulimits: *sn-ulimits
+    volumes:
+      - ./config:/social-network-microservices/config
+
+  jaeger:
+    image: jaegertracing/jaeger-collector
+    command:
+      [
+        "--cassandra.keyspace=jaeger_v1_dc1",
+        "--cassandra.servers=cassandra",
+        "--collector.zipkin.host-port=9411",
+        "--collector.num-workers=100",
+        "--collector.queue-size=100000"
+      ]
+    ports:
+      - "14269:14269"
+    deploy:
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-13.perfdebug.ragger-pg0.apt.emulab.net
+    depends_on:
+      - cassandra-schema
+
+  jaeger-query:
+    image: jaegertracing/jaeger-query
+    command:
+      ["--cassandra.keyspace=jaeger_v1_dc1", "--cassandra.servers=cassandra"]
+    ports:
+      - "16686:16686"
+    deploy:
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-13.perfdebug.ragger-pg0.apt.emulab.net
+    depends_on:
+      - cassandra-schema
+
+  cassandra-schema:
+    image: jaegertracing/jaeger-cassandra-schema
+    deploy:
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.hostname == node-12.perfdebug.ragger-pg0.apt.emulab.net
+    depends_on:
+      - cassandra
+
+  cassandra:
+    image: cassandra:3.9
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-12.perfdebug.ragger-pg0.apt.emulab.net
+
+
+  frontend:
+    image: varungohil/social-network-frontend-go-otel:alwayson
+    ulimits: *sn-ulimits
+    hostname: frontend
+    ports:
+      - 12345:12345
+    depends_on:
+      - jaeger
+      - otel-collector
+      - home-timeline-service
+      - post-storage-service
+      - user-timeline-service
+      - user-service
+      - compose-post-service
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      placement:
+        constraints:
+          - node.hostname == node-0.perfdebug.ragger-pg0.apt.emulab.net
+    environment:
+      - FRONTEND_PORT=12345
+      - FRONTEND_ADDR=localhost
+      - LOG_LEVEL=trace
+    volumes:
+      - ./config/service-config.json:/service-config.json
+      - ./config/jaeger-config.yml:/jaeger-config.yml
+
+
+networks:
+  default:
+    driver: overlay
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.11.0.0/16
