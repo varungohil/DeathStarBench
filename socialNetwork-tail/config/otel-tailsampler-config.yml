@@ -24,8 +24,8 @@ processors:
     # late spans are included.
     decision_wait: 10s
     # Max number of traces kept in memory simultaneously.
-    num_traces: 100000
-    expected_new_traces_per_sec: 1000
+    num_traces: 1000000
+    expected_new_traces_per_sec: 10000
     # Policies are OR-ed: a trace is kept if ANY policy samples it.
     policies:
       # Always keep traces that contain an error span.
@@ -33,11 +33,11 @@ processors:
         type: status_code
         status_code:
           status_codes: [ERROR]
-      # Always keep slow traces (>1s end-to-end).
+      # Always keep slow traces (>100ms end-to-end).
       - name: slow
         type: latency
         latency:
-          threshold_ms: 100
+          threshold_ms: 50
       # Keep 10% of everything else (matches the previous head-sampling rate).
       - name: probabilistic
         type: probabilistic

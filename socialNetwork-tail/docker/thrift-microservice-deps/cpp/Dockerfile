@@ -12,7 +12,7 @@ ARG LIB_AMQP_CPP_VERSION=4.1.4
 ARG LIB_SIMPLEAMQPCLIENT_VERSION=2.4.0
 ARG LIB_HIREDIS_VERSION=1.0.0
 ARG LIB_REDIS_PLUS_PLUS_VERSION=1.2.3
-ARG LIB_OPENTELEMETRY_VERSION=1.19.0
+ARG LIB_OPENTELEMETRY_VERSION=1.26.0
 ARG GRPC_VERSION=1.30.1
 
 ARG BUILD_DEPS="ca-certificates g++ cmake wget git libmemcached-dev automake bison flex libboost-all-dev libevent-dev libssl-dev libtool make pkg-config librabbitmq-dev python3-dev python3-pip python3-setuptools python3-wheel libcurl4-openssl-dev  protobuf-compiler libprotobuf-dev libgrpc++-dev libgrpc-dev protobuf-compiler-grpc "
@@ -21,7 +21,7 @@ ARG BUILD_DEPS="ca-certificates g++ cmake wget git libmemcached-dev automake bis
 RUN apt-get update \
   && apt-get install -y ${BUILD_DEPS} --no-install-recommends
 
-# Install OpenTelemetry CPP SDK
+# Install OpenTelemetry CPP SDK (tracing uses OTLP/HTTP only).
 RUN cd /tmp \
     && git clone --recurse-submodules https://github.com/open-telemetry/opentelemetry-cpp \
     && cd opentelemetry-cpp \
@@ -29,22 +29,22 @@ RUN cd /tmp \
     && mkdir build && cd build \
     && cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
        -DBUILD_SHARED_LIBS=ON \
-       -DWITH_OTLP_GRPC=ON \
        -DWITH_OTLP_HTTP=ON \
-       -DWITH_OTLP_FILE=ON \
        -DWITH_OTLP_HTTP_COMPRESSION=ON \
-       -DWITH_CURL_LOGGING=ON\
-       -DWITH_ZIPKIN=ON \
-       -DWITH_PROMETHEUS=ON \
-       -DWITH_ELASTICSEARCH=ON \
-       -DBUILD_W3CTRACECONTEXT_TEST=ON \
+       -DWITH_OTLP_GRPC=OFF \
+       -DWITH_OTLP_FILE=OFF \
+       -DWITH_CURL_LOGGING=ON \
+       -DWITH_ZIPKIN=OFF \
+       -DWITH_PROMETHEUS=OFF \
+       -DWITH_ELASTICSEARCH=OFF \
+       -DBUILD_W3CTRACECONTEXT_TEST=OFF \
        -DOPENTELEMETRY_INSTALL=ON \
        -DBUILD_TESTING=OFF \
-       -DWITH_BENCHAMRK=OFF \
+       -DWITH_BENCHMARK=OFF \
        -DWITH_EXAMPLES=OFF \
        -DWITH_FUNC_TESTS=OFF \
        .. \
-    && cmake --build . --target all \
+    && cmake --build . --target all -j"$(nproc)" \
     && cmake --install .
 
 # Install mongo-c-driver
